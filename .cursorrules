@@ -1,0 +1,239 @@
+# AI First Demo - Cursor Rules
+
+## Project Context
+This is a comprehensive demo showcasing AI-First development practices using Cursor/Windsurf with .NET 8, React, Redis, and Azure OpenAI. The project demonstrates vertical slice architecture, modular monolith patterns, and real-time features.
+
+## Architecture Guidelines
+
+### Backend (.NET 8)
+- **Vertical Slice Architecture**: Each feature is self-contained with all layers
+- **Modular Monolith**: Clear module boundaries, minimal inter-module dependencies
+- **CQRS with MediatR**: Use for complex operations
+- **Repository Pattern**: Use Redis service for data access
+- **Dependency Injection**: Register services in feature-specific DI containers
+
+### Frontend (React + TypeScript)
+- **Component Organization**: Separate by feature, shared components in common folder
+- **State Management**: React Query for server state, Context API for client state
+- **Styling**: Tailwind CSS with utility-first approach
+- **Type Safety**: Comprehensive TypeScript types for all data models
+
+## Code Standards
+
+### C# Conventions
+- Use **record types** for DTOs and models
+- Use **nullable reference types** consistently
+- Follow **async/await** patterns throughout
+- Use **ConfigureAwait(false)** in library code
+- Implement **proper error handling** with try-catch blocks
+- Use **structured logging** with Serilog
+
+### React/TypeScript Conventions
+- Use **functional components** with hooks
+- Implement **proper TypeScript types** for all props and state
+- Use **React Query** for data fetching and caching
+- Follow **component composition** patterns
+- Use **custom hooks** for reusable logic
+
+### File Naming
+- **C#**: PascalCase for files and classes
+- **React**: PascalCase for components, camelCase for utilities
+- **Folders**: Feature-based organization
+
+## Redis Patterns
+
+### Key Naming Convention
+```
+entity:type:identifier
+
+Examples:
+user:session:abc123
+quiz:attempt:def456
+game:score:ghi789
+tips:category:cursor-basics
+```
+
+### Data Structures
+- **Strings**: Simple key-value data
+- **Hashes**: Complex objects
+- **Lists**: Ordered collections
+- **Sorted Sets**: Leaderboards and rankings
+- **Sets**: Unique collections
+
+## AI Integration Guidelines
+
+### Azure OpenAI Usage
+- **Cache responses** to minimize API calls
+- **Validate content** before displaying to users
+- **Handle rate limits** gracefully
+- **Use appropriate models** for different tasks
+- **Implement fallbacks** for AI service failures
+
+### Prompt Engineering
+- Be **specific and clear** in prompts
+- Provide **context and examples**
+- Use **structured output formats** when needed
+- **Validate AI responses** before using
+
+## Real-time Features (SignalR)
+
+### Hub Implementation
+- Keep hubs **lightweight** and focused
+- Use **groups** for targeted messaging
+- Implement **connection management**
+- Handle **disconnections gracefully**
+
+### Client Integration
+- **Reconnect automatically** on connection loss
+- **Queue messages** during disconnection
+- **Update UI reactively** to real-time events
+
+## Testing Guidelines
+
+### Unit Tests
+- Test **business logic** thoroughly
+- **Mock external dependencies**
+- Use **descriptive test names**
+- Follow **AAA pattern** (Arrange, Act, Assert)
+
+### Integration Tests
+- Test **API endpoints** end-to-end
+- Use **test containers** for Redis
+- **Seed test data** consistently
+- **Clean up** after tests
+
+## Performance Considerations
+
+### Backend
+- Use **async/await** for I/O operations
+- Implement **caching strategies**
+- **Optimize Redis queries**
+- **Monitor memory usage**
+
+### Frontend
+- **Code splitting** for route-based chunks
+- **Lazy loading** for heavy components
+- **Memoization** for expensive calculations
+- **Optimize bundle size**
+
+## Security Guidelines
+
+### API Security
+- **Validate all inputs**
+- **Hash sensitive data** (IP addresses)
+- **Rate limit** API endpoints
+- **Use HTTPS** in production
+
+### Frontend Security
+- **Sanitize user inputs**
+- **Validate data from APIs**
+- **Implement CSP headers**
+- **Secure cookie settings**
+
+## Development Workflow
+
+### Feature Development
+1. **Create feature branch** from main
+2. **Implement backend** (models, services, controllers)
+3. **Add frontend components** and integrate APIs
+4. **Write tests** for critical paths
+5. **Update documentation**
+6. **Create pull request**
+
+### AI-Assisted Development
+- Use **@filename** references for context
+- **Reference similar patterns** in the codebase
+- **Specify expected behavior** clearly
+- **Review AI suggestions** carefully
+
+## Common Patterns
+
+### Adding New Features
+```csharp
+// 1. Create models in Features/{FeatureName}/Models/
+public record NewFeatureRequest(string Property);
+
+// 2. Create service interface
+public interface INewFeatureService
+{
+    Task<Result> ProcessAsync(NewFeatureRequest request);
+}
+
+// 3. Implement service
+public class NewFeatureService : INewFeatureService
+{
+    // Implementation
+}
+
+// 4. Create controller
+[ApiController]
+[Route("api/[controller]")]
+public class NewFeatureController : ControllerBase
+{
+    // Endpoints
+}
+
+// 5. Register in DI
+services.AddScoped<INewFeatureService, NewFeatureService>();
+```
+
+### React Component Pattern
+```typescript
+interface ComponentProps {
+  // Props definition
+}
+
+const Component: React.FC<ComponentProps> = ({ prop }) => {
+  // Hooks
+  // Event handlers
+  // Render logic
+  
+  return (
+    <div className="component-styles">
+      {/* JSX */}
+    </div>
+  )
+}
+
+export default Component
+```
+
+## Error Handling
+
+### Backend
+```csharp
+try
+{
+    // Operation
+}
+catch (SpecificException ex)
+{
+    _logger.LogError(ex, "Specific error context");
+    return BadRequest("User-friendly message");
+}
+catch (Exception ex)
+{
+    _logger.LogError(ex, "Unexpected error in {Operation}", nameof(Operation));
+    return StatusCode(500, "An error occurred");
+}
+```
+
+### Frontend
+```typescript
+const { data, error, isLoading } = useQuery({
+  queryKey: ['key'],
+  queryFn: apiCall,
+  onError: (error) => {
+    console.error('Query failed:', error)
+    // Handle error appropriately
+  }
+})
+```
+
+## Documentation
+- **Comment complex logic**
+- **Document public APIs**
+- **Keep README updated**
+- **Include examples** in documentation
+
+Remember: This project is designed to showcase best practices in AI-first development. Always consider how the code will be understood and extended by both humans and AI assistants.
