@@ -1,0 +1,86 @@
+using Microsoft.AspNetCore.Mvc;
+using AiFirstDemo.Features.Analytics.Models;
+using Microsoft.Extensions.Logging;
+
+namespace AiFirstDemo.Features.Analytics;
+
+[ApiController]
+[Route("api/[controller]")]
+public class AnalyticsController : ControllerBase
+{
+    private readonly IAnalyticsService _analyticsService;
+    private readonly ILogger<AnalyticsController> _logger;
+
+    public AnalyticsController(IAnalyticsService analyticsService, ILogger<AnalyticsController> logger)
+    {
+        _analyticsService = analyticsService;
+        _logger = logger;
+    }
+
+    [HttpGet("dashboard")]
+    public async Task<ActionResult<DashboardData>> GetDashboard()
+    {
+        try
+        {
+            var dashboard = await _analyticsService.GetDashboardDataAsync();
+            return Ok(dashboard);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting dashboard data");
+            return StatusCode(500, "Error retrieving dashboard data");
+        }
+    }
+
+    [HttpGet("users/active")]
+    public async Task<ActionResult<List<UserActivity>>> GetActiveUsers()
+    {
+        try
+        {
+            var users = await _analyticsService.GetActiveUsersAsync();
+            return Ok(users);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting active users");
+            return StatusCode(500, "Error retrieving active users");
+        }
+    }
+
+    [HttpPost("track/{sessionId}")]
+    public async Task<ActionResult> TrackActivity(string sessionId, [FromBody] TrackActivityRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.Activity))
+            {
+                return BadRequest("Activity is required");
+            }
+
+            await _analyticsService.TrackSessionActivityAsync(sessionId, request.Activity);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error tracking activity for session {SessionId}", sessionId);
+            return StatusCode(500, "Error tracking activity");
+        }
+    }
+
+    [HttpGet("activity/{date}")]
+    public async Task<ActionResult<List<HourlyActivity>>> GetHourlyActivity(DateTime date)
+    {
+        try
+        {
+            var activity = await _analyticsService.GetHourlyActivityAsync(date);
+            return Ok(activity);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting hourly activity for {Date}", date);
+            return StatusCode(500, "Error retrieving hourly activity");
+        }
+    }
+}
+
+public record TrackActivityRequest(string Activity);
