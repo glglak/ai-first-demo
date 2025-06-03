@@ -118,16 +118,20 @@ const apiService = {
 // Job titles for dropdown
 const JOB_TITLES = [
   'Software Engineer',
-  'Senior Software Engineer', 
-  'Software Specialist',
-  'Senior Software Specialist',
-  'Software Tech Lead',
-  'Senior Tech Lead',
-  'Dev Manager',
-  'Senior Dev Manager',
-  'Principal Dev Manager',
-  'Cursor Expert',
-  'AI First Crew'
+  'Senior Software Engineer',
+  'Lead Software Engineer',
+  'Engineering Manager',
+  'Product Manager',
+  'DevOps Engineer',
+  'Frontend Developer',
+  'Backend Developer',
+  'Full Stack Developer',
+  'Data Scientist',
+  'QA Engineer',
+  'System Architect',
+  'CTO/Technical Lead',
+  'Student/Learning',
+  'Other'
 ]
 
 // Navigation Component
@@ -216,6 +220,7 @@ const QuizPage = () => {
   const [maxAttempts, setMaxAttempts] = useState(3)
   const [hints, setHints] = useState<Record<string, string>>({})
   const [loadingHints, setLoadingHints] = useState<Record<string, boolean>>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const queryClient = useQueryClient()
 
   // Auto-detect user info on component mount
@@ -287,10 +292,12 @@ const QuizPage = () => {
   const submitQuizMutation = useMutation({
     mutationFn: apiService.submitQuiz,
     onSuccess: (_result) => {
+      setIsSubmitting(false)
       setShowResults(true)
       queryClient.invalidateQueries({ queryKey: ['session', currentSession?.sessionId] })
     },
     onError: (error: Error) => {
+      setIsSubmitting(false)
       console.error('Quiz submission failed:', error)
       // If it's a limit error, reset to show the form with error message
       if (error.message.includes('limit reached') || error.message.includes('attempts')) {
@@ -302,6 +309,7 @@ const QuizPage = () => {
   })
 
   const handleStartQuiz = () => {
+    // Allow names with spaces - just check if name has content after trimming
     if (userName.trim() && selectedTitle) {
       createSessionMutation.mutate({ name: userName.trim(), title: selectedTitle })
     }
@@ -315,8 +323,9 @@ const QuizPage = () => {
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(prev => prev + 1)
     } else {
-      // Submit quiz
+      // Submit quiz with entertaining loading
       if (currentSession) {
+        setIsSubmitting(true)
         const submission: QuizSubmission = {
           sessionId: currentSession.sessionId,
           answers: questions.map(q => ({
@@ -418,6 +427,9 @@ const QuizPage = () => {
                 maxLength={50}
                 disabled={!canTakeQuiz}
               />
+              <p className="text-xs text-gray-500 mt-1">
+                💡 You can use your full name with spaces (e.g., "John Smith")
+              </p>
             </div>
 
             <div>
@@ -500,6 +512,38 @@ const QuizPage = () => {
         <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-12 border border-white/20">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-purple-500 mx-auto mb-4"></div>
           <h2 className="text-2xl font-bold text-gray-800">🔄 Loading Quiz Questions...</h2>
+        </div>
+      </div>
+    )
+  }
+
+  // Show entertaining submission loading
+  if (isSubmitting) {
+    const funnyMessages = [
+      "🤖 Our AI is analyzing your answers with quantum precision...",
+      "📊 Calculating your score using advanced machine learning algorithms...",
+      "🧠 Consulting with the digital wisdom of a thousand developers...",
+      "⚡ Processing your answers at lightning speed (well, almost)...",
+      "🎯 Cross-referencing your responses with the AI development handbook...",
+      "🔮 Predicting your future as an AI-first developer...",
+      "🚀 Launching your results into the cosmos of knowledge...",
+      "💡 Illuminating your path to AI mastery..."
+    ]
+    
+    const randomMessage = funnyMessages[Math.floor(Math.random() * funnyMessages.length)]
+    
+    return (
+      <div className="text-center">
+        <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-12 border border-white/20">
+          <div className="animate-spin rounded-full h-20 w-20 border-b-4 border-purple-500 mx-auto mb-6"></div>
+          <h2 className="text-3xl font-bold text-gray-800 mb-4">✨ Submitting Your Quiz...</h2>
+          <p className="text-lg text-gray-600 mb-4">{randomMessage}</p>
+          <div className="flex justify-center space-x-2 mt-6">
+            <div className="w-3 h-3 bg-purple-500 rounded-full animate-bounce"></div>
+            <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+            <div className="w-3 h-3 bg-indigo-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+          </div>
+          <p className="text-sm text-gray-500 mt-4">This usually takes just a few seconds...</p>
         </div>
       </div>
     )
