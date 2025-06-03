@@ -23,17 +23,34 @@ jobs:
         with:
           dotnet-version: '8.x'
 
-      - name: Build with dotnet
-        run: dotnet build --configuration Release
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: src/AiFirstDemo.Web/package-lock.json
 
-      - name: dotnet publish
-        run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+      - name: Install React dependencies
+        run: |
+          cd src/AiFirstDemo.Web
+          npm install
+
+      - name: Build React frontend
+        run: |
+          cd src/AiFirstDemo.Web
+          npm run build
+
+      - name: Build .NET backend
+        run: dotnet build src/AiFirstDemo.Api/AiFirstDemo.Api.csproj --configuration Release
+
+      - name: Publish .NET backend
+        run: dotnet publish src/AiFirstDemo.Api/AiFirstDemo.Api.csproj --configuration Release --output ./publish
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp
+          path: ./publish
 
   deploy:
     runs-on: windows-latest
@@ -65,4 +82,3 @@ jobs:
           app-name: 'aifirstsession'
           slot-name: 'Production'
           package: .
-          
