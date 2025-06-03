@@ -5,7 +5,7 @@ import { useSignalR } from '../shared/contexts/SignalRContext'
 
 const Home: React.FC = () => {
   const { session } = useSession()
-  const { latestScoreUpdate, latestAnalyticsUpdate } = useSignalR()
+  const { latestScoreUpdate } = useSignalR()
 
   const features = [
     {

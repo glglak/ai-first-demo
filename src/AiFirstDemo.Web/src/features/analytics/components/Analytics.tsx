@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react'
+import React, { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSignalR } from '../../../shared/contexts/SignalRContext'
 import { analyticsApi } from '../../../shared/services/api'

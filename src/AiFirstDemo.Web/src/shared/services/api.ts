@@ -1,24 +1,23 @@
 import axios from 'axios'
 import {
   UserSession,
-  CreateSessionRequest,
   QuizQuestion,
   QuizSubmission,
   QuizResult,
-  SubmitScoreRequest,
   GameScore,
   LeaderboardResponse,
+  SubmitScoreRequest,
   GameStats,
+  Tip,
   TipsCollectionResponse,
   CreateTipRequest,
-  Tip,
   GenerateTipsRequest,
   DashboardData,
   UserActivity,
   HourlyActivity,
   UnifiedLeaderboardResponse,
-  UnifiedParticipant,
-} from '../types/index'
+  UnifiedParticipant
+} from '../types'
 
 const api = axios.create({
   baseURL: '/api',

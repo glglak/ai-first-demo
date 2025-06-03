@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSession } from '../../../shared/contexts/SessionContext'
 import { gameApi } from '../../../shared/services/api'
-import { GameScore, LeaderboardResponse, SubmitScoreRequest } from '../../../shared/types'
+import { SubmitScoreRequest } from '../../../shared/types'
 
 interface GameState {
   player: {
@@ -58,7 +58,7 @@ const SpaceshipGame: React.FC = () => {
   const FRICTION = 0.98
 
   // API queries
-  const { data: leaderboard, refetch: refetchLeaderboard } = useQuery({
+  const { data: leaderboard } = useQuery({
     queryKey: ['leaderboard', session?.sessionId],
     queryFn: () => gameApi.getLeaderboard(session?.sessionId),
     enabled: showLeaderboard
