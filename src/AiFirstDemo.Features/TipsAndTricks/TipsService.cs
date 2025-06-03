@@ -979,7 +979,152 @@ public class TipsService : ITipsService
     /// </summary>
     public async Task ForceReseedAsync()
     {
-        await _redis.DeleteAsync(SEEDED_KEY);
-        await SeedPredefinedTipsAsync();
+        try
+        {
+            _logger.LogInformation("Force reseeding tips - clearing all existing tips and seeding predefined ones");
+            
+            // Clear the seeded flag to allow reseeding
+            await _redis.DeleteAsync(SEEDED_KEY);
+            
+            // Clear all existing tips and categories
+            await ClearAllTipsAsync();
+            
+            // Re-seed predefined tips
+            await SeedPredefinedTipsAsync();
+            
+            _logger.LogInformation("Force reseeding completed successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during force reseed");
+            throw;
+        }
+    }
+
+    public async Task CleanSessionCreatedTipsAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Cleaning tips created by user sessions...");
+            
+            var tipKeys = await _redis.GetKeysAsync($"{TIPS_PREFIX}*");
+            var cleanedCount = 0;
+            
+            foreach (var key in tipKeys)
+            {
+                try
+                {
+                    var tip = await _redis.GetAsync<Tip>(key);
+                    if (tip != null && !tip.IsAiGenerated && !string.IsNullOrEmpty(tip.CreatedByIpHash))
+                    {
+                        // This is a user-created tip, remove it
+                        await _redis.DeleteAsync(key);
+                        
+                        // Note: Since we don't have ListRemoveAsync, we'll rebuild category lists during next reseed
+                        // This is acceptable since user-created tips are being cleaned up
+                        
+                        cleanedCount++;
+                        _logger.LogDebug("Removed user-created tip: {TipId} - {TipTitle}", tip.Id, tip.Title);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error processing tip {Key} during cleanup", key);
+                }
+            }
+            
+            // Clean up category lists that might contain removed tips by rebuilding them
+            await RebuildCategoryListsAsync();
+            
+            _logger.LogInformation("Cleaned {Count} user-created tips from Redis", cleanedCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cleaning session-created tips");
+            throw;
+        }
+    }
+
+    private async Task RebuildCategoryListsAsync()
+    {
+        try
+        {
+            // Clear all category lists
+            var categoryKeys = await _redis.GetKeysAsync($"{CATEGORY_PREFIX}*");
+            foreach (var key in categoryKeys)
+            {
+                await _redis.DeleteAsync(key);
+            }
+            
+            // Rebuild category lists from existing tips
+            var tipKeys = await _redis.GetKeysAsync($"{TIPS_PREFIX}*");
+            foreach (var key in tipKeys)
+            {
+                if (key.Contains("category:") || key.Contains("likes:") || key.Contains("categories")) continue;
+                
+                try
+                {
+                    var tip = await _redis.GetAsync<Tip>(key);
+                    if (tip != null)
+                    {
+                        await _redis.ListPushAsync($"{CATEGORY_PREFIX}{tip.Category}", tip.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error rebuilding category for tip {Key}", key);
+                }
+            }
+            
+            _logger.LogInformation("Rebuilt category lists after cleanup");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error rebuilding category lists");
+        }
+    }
+
+    private async Task ClearAllTipsAsync()
+    {
+        try
+        {
+            // Clear all tip data
+            var tipKeys = await _redis.GetKeysAsync($"{TIPS_PREFIX}*");
+            foreach (var key in tipKeys)
+            {
+                await _redis.DeleteAsync(key);
+            }
+            
+            // Clear all category lists
+            var categoryKeys = await _redis.GetKeysAsync($"{CATEGORY_PREFIX}*");
+            foreach (var key in categoryKeys)
+            {
+                await _redis.DeleteAsync(key);
+            }
+            
+            // Clear user likes
+            var likesKeys = await _redis.GetKeysAsync($"{USER_LIKES_PREFIX}*");
+            foreach (var key in likesKeys)
+            {
+                await _redis.DeleteAsync(key);
+            }
+            
+            // Clear tip likes
+            var tipLikesKeys = await _redis.GetKeysAsync($"{TIP_LIKES_PREFIX}*");
+            foreach (var key in tipLikesKeys)
+            {
+                await _redis.DeleteAsync(key);
+            }
+            
+            // Clear categories
+            await _redis.DeleteAsync(CATEGORIES_KEY);
+            
+            _logger.LogInformation("Cleared all tips and related data from Redis");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error clearing all tips");
+            throw;
+        }
     }
 }

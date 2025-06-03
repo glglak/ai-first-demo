@@ -173,6 +173,21 @@ public class TipsController : ControllerBase
         }
     }
 
+    [HttpPost("admin/clean-session-tips")]
+    public async Task<ActionResult> CleanSessionCreatedTips()
+    {
+        try
+        {
+            await _tipsService.CleanSessionCreatedTipsAsync();
+            return Ok(new { message = "Successfully cleaned session-created tips from Redis" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cleaning session-created tips");
+            return StatusCode(500, "Error cleaning session-created tips");
+        }
+    }
+
     [HttpPost("debug/seed")]
     public async Task<ActionResult<object>> DebugSeed()
     {

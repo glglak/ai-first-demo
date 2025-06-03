@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSession } from '../../../shared/contexts/SessionContext'
 import { tipsApi, sessionApi } from '../../../shared/services/api'
@@ -35,6 +35,9 @@ const TipsAndTricks: React.FC = () => {
   })
   const { session, setSession } = useSession()
   const queryClient = useQueryClient()
+  const [likedTips, setLikedTips] = useState<Set<string>>(new Set())
+  const [likingTips, setLikingTips] = useState<Set<string>>(new Set())
+  const [likeNotifications, setLikeNotifications] = useState<Map<string, string>>(new Map())
 
   // API queries - fetch tips from backend with session context
   const { data: tipsResponse, isLoading } = useQuery({
@@ -84,17 +87,65 @@ const TipsAndTricks: React.FC = () => {
     }
   })
 
+  // Update liked tips when tips data changes
+  useEffect(() => {
+    if (allTips) {
+      const currentlyLiked = new Set(allTips.filter(tip => tip.isLikedByUser).map(tip => tip.id))
+      setLikedTips(currentlyLiked)
+    }
+  }, [allTips])
+
   const likeTipMutation = useMutation({
     mutationFn: (tipId: string) => tipsApi.likeTip(tipId, session?.sessionId || ''),
-    onSuccess: () => {
-      // Refetch tips to get updated like status
+    onSuccess: (_, tipId) => {
+      // Remove from liking state
+      setLikingTips(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(tipId)
+        return newSet
+      })
+      
+      // Show success notification
+      setLikeNotifications(prev => new Map(prev.set(tipId, 'Like saved successfully! ❤️')))
+      
+      // Remove notification after 2 seconds
+      setTimeout(() => {
+        setLikeNotifications(prev => {
+          const newMap = new Map(prev)
+          newMap.delete(tipId)
+          return newMap
+        })
+      }, 2000)
+      
+      // Refetch tips to get updated like status (but user already sees the change)
       queryClient.invalidateQueries({ queryKey: ['tips'] })
     },
-    onError: (error) => {
+    onError: (error, tipId) => {
       console.error('Failed to like tip:', error)
-      // Don't show alert for already liked tips (400 error)
+      
+      // Revert optimistic update
+      setLikedTips(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(tipId)
+        return newSet
+      })
+      
+      setLikingTips(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(tipId)
+        return newSet
+      })
+      
+      // Show error notification only if it's not a "already liked" error
       if (!error.message.includes('400')) {
-        alert('Failed to like tip. Please try again.')
+        setLikeNotifications(prev => new Map(prev.set(tipId, 'Failed to save like. Please try again.')))
+        setTimeout(() => {
+          setLikeNotifications(prev => {
+            const newMap = new Map(prev)
+            newMap.delete(tipId)
+            return newMap
+          })
+        }, 3000)
       }
     }
   })
@@ -129,10 +180,20 @@ const TipsAndTricks: React.FC = () => {
       return
     }
     
-    const tip = allTips.find(t => t.id === tipId)
-    if (tip && !tip.isLikedByUser) {
-      likeTipMutation.mutate(tipId)
+    // Check if already liked or currently liking
+    if (likedTips.has(tipId) || likingTips.has(tipId)) {
+      return
     }
+    
+    // Optimistic update - immediately show as liked
+    setLikedTips(prev => new Set(prev.add(tipId)))
+    setLikingTips(prev => new Set(prev.add(tipId)))
+    
+    // Show immediate feedback
+    setLikeNotifications(prev => new Map(prev.set(tipId, 'Saving your like... 💫')))
+    
+    // Trigger the actual API call in the background
+    likeTipMutation.mutate(tipId)
   }
 
   return (
@@ -232,14 +293,14 @@ const TipsAndTricks: React.FC = () => {
                 </span>
                 <button
                   onClick={() => handleLikeTip(tip.id)}
-                  disabled={tip.isLikedByUser || likeTipMutation.isPending}
+                  disabled={likedTips.has(tip.id) || likingTips.has(tip.id)}
                   className={`flex items-center space-x-1 text-sm ${
-                    tip.isLikedByUser 
+                    likedTips.has(tip.id) 
                       ? 'text-red-500 cursor-not-allowed' 
                       : 'text-gray-500 hover:text-red-500 cursor-pointer'
-                  } ${likeTipMutation.isPending ? 'opacity-50' : ''}`}
+                  } ${likingTips.has(tip.id) ? 'opacity-50' : ''}`}
                 >
-                  <span>{tip.isLikedByUser ? '❤️' : '🤍'}</span>
+                  <span>{likedTips.has(tip.id) ? '❤️' : '🤍'}</span>
                   <span>{tip.likes}</span>
                 </button>
               </div>
@@ -443,6 +504,38 @@ const TipsAndTricks: React.FC = () => {
             <div className="text-sm text-gray-600">Total Likes</div>
           </div>
         </div>
+      </div>
+
+      {/* Like Toast Notifications */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {Array.from(likeNotifications.entries()).map(([tipId, message]) => (
+          <div
+            key={tipId}
+            className={`p-4 rounded-lg shadow-lg transition-all transform ${
+              message.includes('successfully') 
+                ? 'bg-green-100 border border-green-200 text-green-800'
+                : message.includes('Failed')
+                ? 'bg-red-100 border border-red-200 text-red-800'
+                : 'bg-blue-100 border border-blue-200 text-blue-800'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">{message}</span>
+              <button
+                onClick={() => {
+                  setLikeNotifications(prev => {
+                    const newMap = new Map(prev)
+                    newMap.delete(tipId)
+                    return newMap
+                  })
+                }}
+                className="ml-3 text-current hover:text-opacity-70"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )

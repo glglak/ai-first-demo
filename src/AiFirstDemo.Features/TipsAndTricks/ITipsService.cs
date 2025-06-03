@@ -13,4 +13,5 @@ public interface ITipsService
     Task<Tip?> GetTipAsync(string tipId);
     Task EnsureTipsSeededAsync();
     Task ForceReseedAsync();
+    Task CleanSessionCreatedTipsAsync();
 }

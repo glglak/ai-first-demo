@@ -106,19 +106,13 @@ public class QuizService : IQuizService
             );
             quizAnswers.Add(quizAnswer);
 
-            // Generate AI explanation
-            var explanation = await _openAI.GenerateQuizExplanationAsync(
-                question.Text, 
-                submission.SelectedAnswer, 
-                question.CorrectAnswer
-            );
-
+            // Remove AI explanation to improve performance - user requested this optimization
             results.Add(new QuestionResult(
                 QuestionText: question.Text,
                 SelectedAnswer: submission.SelectedAnswer,
                 CorrectAnswer: question.CorrectAnswer,
                 IsCorrect: isCorrect,
-                Explanation: explanation
+                Explanation: "" // Removed AI explanation for performance
             ));
         }
 
@@ -248,6 +242,8 @@ public class QuizService : IQuizService
     {
         try
         {
+            _logger.LogInformation("Getting hint for question {QuestionId}", questionId);
+            
             // Get the predefined questions to find the specific question
             var questions = GetPredefinedQuestions();
             var question = questions.FirstOrDefault(q => q.Id == questionId);
@@ -270,21 +266,54 @@ public class QuizService : IQuizService
             var cachedHint = await _redis.GetStringAsync(cacheKey);
             if (!string.IsNullOrEmpty(cachedHint))
             {
+                _logger.LogInformation("Returning cached hint for question {QuestionId}", questionId);
                 return cachedHint;
             }
 
-            // Generate hint using OpenAI
+            _logger.LogInformation("Generating new hint for question {QuestionId} using OpenAI", questionId);
+
+            // Generate hint using OpenAI with better error handling
             var hint = await _openAI.GenerateQuizHintAsync(question.Text, question.Options, question.Category);
+            
+            if (string.IsNullOrEmpty(hint))
+            {
+                _logger.LogWarning("OpenAI returned empty hint for question {QuestionId}", questionId);
+                hint = GetFallbackHint(question);
+            }
             
             // Cache the hint for 24 hours
             await _redis.SetAsync(cacheKey, hint, TimeSpan.FromHours(24));
             
+            _logger.LogInformation("Successfully generated and cached hint for question {QuestionId}", questionId);
             return hint;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating hint for question {QuestionId}", questionId);
-            return "Sorry, I couldn't generate a hint for this question at the moment. Try thinking about the key concepts in the question category.";
+            
+            // Return a helpful fallback hint based on the question category
+            var questions = GetPredefinedQuestions();
+            var question = questions.FirstOrDefault(q => q.Id == questionId);
+            if (question != null)
+            {
+                return GetFallbackHint(question);
+            }
+            
+            return "Think about the key concepts and best practices related to this question. Consider what would be most practical and commonly used in real development scenarios.";
         }
+    }
+
+    private string GetFallbackHint(QuizQuestion question)
+    {
+        return question.Category.ToLower() switch
+        {
+            "cursor basics" => "Think about the most commonly used keyboard shortcuts and features that improve productivity in Cursor.",
+            "ai integration" => "Consider which AI model characteristics matter most for different types of development tasks.",
+            "context management" => "Focus on how you can provide better context to AI tools for more accurate assistance.",
+            "best practices" => "Think about what would be most practical and efficient in real development workflows.",
+            "prompt engineering" => "Consider what makes prompts clear, specific, and actionable for AI assistants.",
+            "advanced features" => "Think about the difference between review-based and automatic features in AI development tools.",
+            _ => "Consider the core principles and most practical approaches related to this topic."
+        };
     }
 }

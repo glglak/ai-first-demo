@@ -1,11 +1,23 @@
+# Architecture Overview
+
+## Live Demo
+🌐 **Live Application**: [https://aifirstsession-cshcfrh3h5g6f5ea.canadacentral-01.azurewebsites.net](https://aifirstsession-cshcfrh3h5g6f5ea.canadacentral-01.azurewebsites.net)
+
+## Detailed Architecture Documentation
+
+This AI-First Demo showcases modern web development practices with a focus on simplicity and performance. For detailed architectural insights, see:
+
+📊 **[UI Component Architecture](./ui-component-architecture.md)** - React frontend structure and component interaction patterns
+🏗️ **[Solution Architecture](./solution-architecture.md)** - Backend services, vertical slices, and data flow patterns  
+☁️ **[Hosting Infrastructure](./hosting-infrastructure.md)** - Azure deployment, CI/CD, and infrastructure patterns
+
+## Quick Architecture Summary
+
 # AI-First Demo - Architecture Overview
 
 ## 🎯 **Project Purpose**
 
 This project demonstrates **AI-assisted development** using **Cursor** and **Windsurf** to rapidly build production-quality applications. The demo showcases how AI tools can accelerate development while maintaining high standards for performance, architecture, and user experience.
-
-## 🌐 **Live Demo**
-**[Try the Live App](https://aifirstsession-cshcfrh3h5g6f5ea.canadacentral-01.azurewebsites.net)**
 
 ## ✅ **What We Actually Built**
 

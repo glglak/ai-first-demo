@@ -594,15 +594,7 @@ const QuizPage = () => {
                         Your answer: <span className="font-medium">{result.selectedAnswer || "Not answered"}</span>
                         {result.isCorrect ? <span className="ml-2">✅ Correct</span> : <span className="ml-2">❌ Incorrect</span>}
                       </p>
-                      {!result.isCorrect && (
-                        <p className="text-sm text-gray-600 mb-3">
-                          Correct answer: <span className="font-medium text-green-700">{result.correctAnswer}</span>
-                        </p>
-                      )}
-                      <div className="mt-3 pt-3 border-t border-gray-300/50">
-                        <p className="text-xs text-gray-500 mb-1 font-medium">AI Explanation:</p>
-                        <p className="text-xs text-gray-600 leading-relaxed">{result.explanation}</p>
-                      </div>
+                      {/* Removed AI explanation display for better performance */}
                     </div>
                   ))}
                 </div>
