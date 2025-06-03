@@ -136,4 +136,26 @@ public class OpenAIService : IOpenAIService
             return false; // Err on the side of caution
         }
     }
+
+    public async Task<string> GenerateQuizHintAsync(string question, List<string> options, string category)
+    {
+        var systemMessage = @"You are an AI development mentor helping developers learn about Cursor and AI-first development. 
+        Provide helpful hints for quiz questions without giving away the direct answer. 
+        Focus on guiding the user's thinking process and providing context that helps them reason through the problem.";
+        
+        var prompt = $@"Question: {question}
+        Category: {category}
+        Options: {string.Join(", ", options)}
+        
+        Provide a helpful hint that:
+        - Guides the user's thinking without revealing the answer
+        - Gives context about the concept being tested
+        - Helps them eliminate obviously wrong options
+        - Is encouraging and educational
+        - Is 1-2 sentences long
+        
+        Do NOT directly state which option is correct.";
+
+        return await GenerateTextAsync(prompt, systemMessage, 200);
+    }
 }

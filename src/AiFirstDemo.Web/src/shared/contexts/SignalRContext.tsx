@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import * as signalR from '@microsoft/signalr'
-import { ScoreUpdate, GameEvent, AnalyticsUpdate } from '../types'
+import { ScoreUpdate, GameEvent, AnalyticsUpdate } from '../types/index'
 
 interface SignalRContextType {
   gameConnection: signalR.HubConnection | null

@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { useSession } from '../contexts/SessionContext'
-import { sessionApi } from '../services/api'
-import { CreateSessionRequest } from '../types'
+import { useSession } from '../../../shared/contexts/SessionContext'
+import { sessionApi } from '../../../shared/services/api'
+import { CreateSessionRequest } from '../../../shared/types'
 
 const CreateSession: React.FC = () => {
   const [name, setName] = useState('')

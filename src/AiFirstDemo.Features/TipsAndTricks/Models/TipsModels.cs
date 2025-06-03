@@ -9,7 +9,9 @@ public record Tip(
     List<string> Tags,
     DateTime CreatedAt,
     int Likes,
-    bool IsAiGenerated
+    bool IsAiGenerated,
+    string? CreatedBy = null,
+    string? CreatedByIpHash = null
 );
 
 public record CreateTipRequest(
@@ -37,7 +39,8 @@ public record TipResponse(
     DateTime CreatedAt,
     int Likes,
     bool IsLikedByUser,
-    bool IsAiGenerated
+    bool IsAiGenerated,
+    string? CreatedBy = null
 );
 
 public record TipsCollectionResponse(

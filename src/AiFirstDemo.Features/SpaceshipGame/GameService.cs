@@ -1,6 +1,7 @@
 using AiFirstDemo.Features.SpaceshipGame.Models;
 using AiFirstDemo.Infrastructure.Redis;
 using AiFirstDemo.Features.UserSessions;
+using AiFirstDemo.Features.Analytics;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.SignalR;
 using AiFirstDemo.Features.Shared.Hubs;
@@ -11,6 +12,7 @@ public class GameService : IGameService
 {
     private readonly IRedisService _redis;
     private readonly IUserSessionService _userSession;
+    private readonly IAnalyticsService _analytics;
     private readonly IHubContext<GameHub> _gameHub;
     private readonly ILogger<GameService> _logger;
     
@@ -24,20 +26,22 @@ public class GameService : IGameService
     public GameService(
         IRedisService redis,
         IUserSessionService userSession,
+        IAnalyticsService analytics,
         IHubContext<GameHub> gameHub,
         ILogger<GameService> logger)
     {
         _redis = redis;
         _userSession = userSession;
+        _analytics = analytics;
         _gameHub = gameHub;
         _logger = logger;
     }
 
     public async Task<GameScore> SubmitScoreAsync(SubmitScoreRequest request)
     {
-        // Validate session
+        // Validate session - allow game-only sessions
         var session = await _userSession.GetSessionAsync(request.SessionId);
-        if (session == null)
+        if (session == null && request.SessionId != "game-only-session")
         {
             throw new InvalidOperationException("Invalid session");
         }
@@ -78,6 +82,9 @@ public class GameService : IGameService
 
         // Update stats
         await UpdateGameStatsAsync(request);
+
+        // Track analytics
+        await _analytics.TrackGamePlayAsync(request.SessionId, request.Score);
 
         // Notify connected clients
         await _gameHub.Clients.All.SendAsync("ScoreUpdate", new {
@@ -166,7 +173,7 @@ public class GameService : IGameService
         );
     }
 
-    public async Task<bool> ValidateScoreAsync(SubmitScoreRequest request)
+    public Task<bool> ValidateScoreAsync(SubmitScoreRequest request)
     {
         // Basic validation rules for the spaceship game
         // These would be more sophisticated in a real game
@@ -179,7 +186,7 @@ public class GameService : IGameService
         {
             _logger.LogWarning("Suspicious score: {Score} for duration {Duration}", 
                 request.Score, request.GameDuration);
-            return false;
+            return Task.FromResult(false);
         }
 
         // Level should correlate with score somewhat
@@ -187,17 +194,17 @@ public class GameService : IGameService
         {
             _logger.LogWarning("Score {Score} too low for level {Level}", 
                 request.Score, request.Level);
-            return false;
+            return Task.FromResult(false);
         }
 
         // Game duration should be reasonable
         if (request.GameDuration.TotalMinutes > 30 || request.GameDuration.TotalSeconds < 10)
         {
             _logger.LogWarning("Suspicious game duration: {Duration}", request.GameDuration);
-            return false;
+            return Task.FromResult(false);
         }
 
-        return true;
+        return Task.FromResult(true);
     }
 
     private async Task<List<LeaderboardEntry>> BuildLeaderboardEntries(

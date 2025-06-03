@@ -100,7 +100,9 @@ export interface Tip {
   difficulty: string
   tags: string[]
   createdAt: string
+  createdBy: string
   likes: number
+  isLiked: boolean
   isAiGenerated: boolean
 }
 
@@ -169,6 +171,20 @@ export interface UserActivity {
   completedQuiz: boolean
   gameAttempts: number
   bestScore: number
+}
+
+export interface UnifiedLeaderboardResponse {
+  quizParticipants: UnifiedParticipant[]
+  gameParticipants: UnifiedParticipant[]
+  tipsContributors: UnifiedParticipant[]
+}
+
+export interface UnifiedParticipant {
+  name: string
+  ipHash: string
+  score: number
+  activity: string
+  lastActive: string
 }
 
 // Game Engine Types

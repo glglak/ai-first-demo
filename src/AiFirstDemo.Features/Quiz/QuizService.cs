@@ -2,6 +2,8 @@ using AiFirstDemo.Features.Quiz.Models;
 using AiFirstDemo.Infrastructure.Redis;
 using AiFirstDemo.Infrastructure.OpenAI;
 using AiFirstDemo.Features.UserSessions;
+using AiFirstDemo.Features.Shared.Models;
+using AiFirstDemo.Features.Analytics;
 using Microsoft.Extensions.Logging;
 
 namespace AiFirstDemo.Features.Quiz;
@@ -11,6 +13,7 @@ public class QuizService : IQuizService
     private readonly IRedisService _redis;
     private readonly IOpenAIService _openAI;
     private readonly IUserSessionService _userSession;
+    private readonly IAnalyticsService _analytics;
     private readonly ILogger<QuizService> _logger;
     private const string QUIZ_ATTEMPT_PREFIX = "quiz:attempt:";
     private const string QUIZ_QUESTIONS_KEY = "quiz:questions:all";
@@ -19,11 +22,13 @@ public class QuizService : IQuizService
         IRedisService redis, 
         IOpenAIService openAI,
         IUserSessionService userSession,
+        IAnalyticsService analytics,
         ILogger<QuizService> logger)
     {
         _redis = redis;
         _openAI = openAI;
         _userSession = userSession;
+        _analytics = analytics;
         _logger = logger;
     }
 
@@ -60,9 +65,23 @@ public class QuizService : IQuizService
             throw new InvalidOperationException("Invalid session");
         }
 
+        // Check if this IP can still take quizzes
+        // We need to get the original IP from the session's IP hash
+        // For now, we'll use a workaround since we need the original IP
+        // In a real implementation, we'd store the original IP or use the hash consistently
+        var sessionIpHash = session.IpHash;
+        
+        // Create a temporary method to check attempts using IP hash
+        var attempts = await GetQuizAttemptsForIpHashAsync(sessionIpHash);
+        if (attempts >= 3)
+        {
+            throw new InvalidOperationException($"Quiz attempt limit reached. You have completed {attempts}/3 attempts today. Please try again tomorrow.");
+        }
+
+        // Check if this specific session already completed a quiz
         if (session.HasCompletedQuiz)
         {
-            throw new InvalidOperationException("Quiz already completed for this session");
+            throw new InvalidOperationException("Quiz already completed for this session. Create a new session to try again.");
         }
 
         var questions = await GetQuizQuestionsAsync();
@@ -131,8 +150,11 @@ public class QuizService : IQuizService
         // Save attempt
         await _redis.SetAsync($"{QUIZ_ATTEMPT_PREFIX}{request.SessionId}", attempt, TimeSpan.FromDays(7));
         
-        // Mark quiz as completed
+        // Mark quiz as completed (this will increment the attempt count)
         await _userSession.MarkQuizCompletedAsync(request.SessionId);
+
+        // Track analytics
+        await _analytics.TrackQuizCompletionAsync(request.SessionId, score);
 
         _logger.LogInformation("Quiz completed for session {SessionId} with score {Score}/{Total}", 
             request.SessionId, score, questions.Count);
@@ -196,5 +218,73 @@ public class QuizService : IQuizService
                 new List<string> { "Using longer variable names", "Providing clear context and examples", "Writing comments in ALL CAPS", "Using only single-letter variables" }, 
                 "Providing clear context and examples", "Best Practices", "Medium")
         };
+    }
+
+    private string GetIpFromSession(AiFirstDemo.Features.Shared.Models.UserSession session)
+    {
+        // For now, we'll use a placeholder since we don't store the original IP
+        // In a real implementation, you might store the original IP or derive it differently
+        return "placeholder-ip"; // This should be replaced with actual IP retrieval logic
+    }
+
+    private async Task<int> GetQuizAttemptsForIpHashAsync(string ipHash)
+    {
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var key = $"ip:quiz:attempts:{ipHash}:{today}";
+        
+        try
+        {
+            var attemptsStr = await _redis.GetStringAsync(key);
+            return int.TryParse(attemptsStr, out var attempts) ? attempts : 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error getting quiz attempts for IP hash {IpHash}, returning 0", ipHash);
+            return 0;
+        }
+    }
+
+    public async Task<string?> GetQuestionHintAsync(string questionId)
+    {
+        try
+        {
+            // Get the predefined questions to find the specific question
+            var questions = GetPredefinedQuestions();
+            var question = questions.FirstOrDefault(q => q.Id == questionId);
+            
+            if (question == null)
+            {
+                _logger.LogWarning("Question with ID {QuestionId} not found", questionId);
+                return null;
+            }
+
+            // Don't provide hints for hard questions to maintain scoring integrity
+            if (question.Difficulty.Equals("Hard", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("Hint requested for hard question {QuestionId}, but hints are not available for hard questions", questionId);
+                return null;
+            }
+
+            // Check cache first
+            var cacheKey = $"quiz:hint:{questionId}";
+            var cachedHint = await _redis.GetStringAsync(cacheKey);
+            if (!string.IsNullOrEmpty(cachedHint))
+            {
+                return cachedHint;
+            }
+
+            // Generate hint using OpenAI
+            var hint = await _openAI.GenerateQuizHintAsync(question.Text, question.Options, question.Category);
+            
+            // Cache the hint for 24 hours
+            await _redis.SetAsync(cacheKey, hint, TimeSpan.FromHours(24));
+            
+            return hint;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating hint for question {QuestionId}", questionId);
+            return "Sorry, I couldn't generate a hint for this question at the moment. Try thinking about the key concepts in the question category.";
+        }
     }
 }

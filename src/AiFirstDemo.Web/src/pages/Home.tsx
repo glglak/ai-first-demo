@@ -1,7 +1,7 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { useSession } from '../contexts/SessionContext'
-import { useSignalR } from '../contexts/SignalRContext'
+import { useSession } from '../shared/contexts/SessionContext'
+import { useSignalR } from '../shared/contexts/SignalRContext'
 
 const Home: React.FC = () => {
   const { session } = useSession()

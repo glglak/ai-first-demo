@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { UserSession } from '../types'
+import { UserSession } from '../types/index'
 
 interface SessionContextType {
   session: UserSession | null

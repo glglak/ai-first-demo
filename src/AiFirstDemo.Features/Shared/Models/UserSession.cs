@@ -14,6 +14,10 @@ public record CreateUserSessionRequest(
     string IpAddress
 );
 
+public record CreateSessionNameRequest(
+    string Name
+);
+
 public record UserSessionResponse(
     string SessionId,
     string Name,

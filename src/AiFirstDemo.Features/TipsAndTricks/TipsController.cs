@@ -172,4 +172,91 @@ public class TipsController : ControllerBase
             return StatusCode(500, "Error retrieving categories");
         }
     }
+
+    [HttpPost("debug/seed")]
+    public async Task<ActionResult<object>> DebugSeed()
+    {
+        try
+        {
+            // Force re-seeding by creating a new service instance
+            _logger.LogInformation("Manual seeding triggered");
+            
+            // Check if cursor-1 exists before seeding
+            var tipBefore = await _tipsService.GetTipAsync("cursor-1");
+            
+            // Force seeding
+            await _tipsService.EnsureTipsSeededAsync();
+            
+            // Check if cursor-1 exists after seeding
+            var tipAfter = await _tipsService.GetTipAsync("cursor-1");
+            
+            // Get all tips to see total count
+            var tips = await _tipsService.GetTipsAsync();
+            
+            return Ok(new
+            {
+                message = "Debug seeding completed",
+                tipExistedBefore = tipBefore != null,
+                tipExistsAfter = tipAfter != null,
+                totalTipsCount = tips.TotalCount,
+                categories = tips.AvailableCategories
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in debug seeding");
+            return StatusCode(500, "Error in debug seeding");
+        }
+    }
+
+    [HttpPost("debug/force-reseed")]
+    public async Task<ActionResult<object>> ForceReseed()
+    {
+        try
+        {
+            _logger.LogInformation("Force reseeding triggered");
+            
+            // Force reseed all tips
+            await _tipsService.ForceReseedAsync();
+            
+            // Get updated tips count
+            var tips = await _tipsService.GetTipsAsync();
+            var categories = await _tipsService.GetCategoriesAsync();
+            
+            return Ok(new
+            {
+                message = "Force reseed completed",
+                totalTipsCount = tips.TotalCount,
+                availableCategories = categories,
+                tipsInAllCategory = tips.Tips.Count
+            });
+        }
+        catch (Exception ex)  
+        {
+            _logger.LogError(ex, "Error in force reseed");
+            return StatusCode(500, "Error in force reseed");
+        }
+    }
+
+    [HttpGet("debug/check/{tipId}")]
+    public async Task<ActionResult<object>> DebugCheckTip(string tipId)
+    {
+        try
+        {
+            var tip = await _tipsService.GetTipAsync(tipId);
+            
+            return Ok(new
+            {
+                tipId,
+                exists = tip != null,
+                tip = tip,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking tip {TipId}", tipId);
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
 }

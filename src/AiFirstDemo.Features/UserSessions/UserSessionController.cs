@@ -19,7 +19,7 @@ public class SessionsController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<UserSessionResponse>> CreateSession([FromBody] CreateUserSessionRequest request)
+    public async Task<ActionResult<UserSessionResponse>> CreateSession([FromBody] CreateSessionNameRequest request)
     {
         try
         {
@@ -31,12 +31,7 @@ public class SessionsController : ControllerBase
             // Get client IP address
             var clientIp = GetClientIpAddress();
             
-            // Check if session already exists for this IP
-            if (await _sessionService.SessionExistsForIpAsync(clientIp))
-            {
-                return Conflict("A session already exists for this IP address");
-            }
-
+            // Always allow session creation, but try to get quiz info with fallbacks
             var createRequest = new CreateUserSessionRequest(request.Name, clientIp);
             var session = await _sessionService.CreateSessionAsync(createRequest);
 
@@ -46,6 +41,27 @@ public class SessionsController : ControllerBase
                 CreatedAt: session.CreatedAt,
                 HasCompletedQuiz: session.HasCompletedQuiz
             );
+
+            // Try to get quiz attempt info, but don't fail session creation if Redis is down
+            try
+            {
+                var quizAttempts = await _sessionService.GetQuizAttemptsForIpAsync(clientIp);
+                var canTakeQuiz = await _sessionService.CanTakeQuizAsync(clientIp);
+                
+                // Add quiz attempt info to response headers for frontend to handle
+                Response.Headers.Add("X-Quiz-Attempts", quizAttempts.ToString());
+                Response.Headers.Add("X-Can-Take-Quiz", canTakeQuiz.ToString().ToLower());
+                Response.Headers.Add("X-Max-Quiz-Attempts", "3");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not retrieve quiz attempt info for IP {ClientIp}, using defaults", clientIp);
+                
+                // Set safe defaults if Redis is unavailable
+                Response.Headers.Add("X-Quiz-Attempts", "0");
+                Response.Headers.Add("X-Can-Take-Quiz", "true");
+                Response.Headers.Add("X-Max-Quiz-Attempts", "3");
+            }
 
             return Ok(response);
         }
@@ -100,6 +116,73 @@ public class SessionsController : ControllerBase
         {
             _logger.LogError(ex, "Error updating activity for session {SessionId}", sessionId);
             return StatusCode(500, "Error updating activity");
+        }
+    }
+
+    [HttpPost("cleanup-quiz-counters")]
+    public async Task<ActionResult<object>> CleanupQuizCounters()
+    {
+        try
+        {
+            var cleanedCount = await _sessionService.CleanupCorruptedQuizCountersAsync();
+            
+            _logger.LogInformation("Quiz counter cleanup completed. Cleaned {Count} corrupted keys", cleanedCount);
+            
+            return Ok(new { 
+                message = "Quiz counter cleanup completed", 
+                cleanedKeys = cleanedCount,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during quiz counter cleanup");
+            return StatusCode(500, "Error during cleanup");
+        }
+    }
+
+    [HttpGet("health")]
+    public async Task<ActionResult<object>> HealthCheck()
+    {
+        try
+        {
+            var startTime = DateTime.UtcNow;
+            
+            // Test basic Redis connectivity
+            var testKey = $"health:test:{Guid.NewGuid()}";
+            var testValue = "test-value";
+            
+            // Try to set and get a test value
+            var canTakeQuiz = await _sessionService.CanTakeQuizAsync("127.0.0.1");
+            var elapsed = DateTime.UtcNow - startTime;
+            
+            return Ok(new
+            {
+                status = "healthy",
+                redis = new
+                {
+                    connected = true,
+                    responseTime = $"{elapsed.TotalMilliseconds:F0}ms",
+                    canPerformOperations = true
+                },
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Health check failed");
+            
+            return Ok(new
+            {
+                status = "degraded",
+                redis = new
+                {
+                    connected = false,
+                    error = ex.Message,
+                    canPerformOperations = false
+                },
+                timestamp = DateTime.UtcNow
+            });
         }
     }
 

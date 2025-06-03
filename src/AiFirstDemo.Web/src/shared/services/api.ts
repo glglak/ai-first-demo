@@ -16,7 +16,9 @@ import {
   DashboardData,
   UserActivity,
   HourlyActivity,
-} from '../types'
+  UnifiedLeaderboardResponse,
+  UnifiedParticipant,
+} from '../types/index'
 
 const api = axios.create({
   baseURL: '/api',
@@ -48,8 +50,8 @@ api.interceptors.response.use(
 
 // Session API
 export const sessionApi = {
-  create: (request: CreateSessionRequest): Promise<UserSession> =>
-    api.post('/sessions', request).then((res) => res.data),
+  create: (request: { name: string }): Promise<UserSession> =>
+    api.post('/sessions', { name: request.name }).then((res) => res.data),
   
   get: (sessionId: string): Promise<UserSession> =>
     api.get(`/sessions/${sessionId}`).then((res) => res.data),
@@ -71,6 +73,9 @@ export const quizApi = {
   
   generateQuestions: (count: number = 10): Promise<QuizQuestion[]> =>
     api.post(`/quiz/generate?count=${count}`).then((res) => res.data),
+
+  getHint: (questionId: string): Promise<{ hint: string }> =>
+    api.get(`/quiz/hint/${questionId}`).then((res) => res.data),
 }
 
 // Game API
@@ -129,6 +134,19 @@ export const analyticsApi = {
   
   getHourlyActivity: (date: Date): Promise<HourlyActivity[]> =>
     api.get(`/analytics/activity/${date.toISOString().split('T')[0]}`).then((res) => res.data),
+  
+  getUnifiedLeaderboard: (): Promise<UnifiedLeaderboardResponse> =>
+    api.get('/analytics/unified-leaderboard').then((res) => res.data),
+  
+  // Separate leaderboard endpoints for better performance
+  getQuizParticipants: (): Promise<UnifiedParticipant[]> =>
+    api.get('/analytics/leaderboard/quiz').then((res) => res.data),
+  
+  getGameParticipants: (): Promise<UnifiedParticipant[]> =>
+    api.get('/analytics/leaderboard/game').then((res) => res.data),
+  
+  getTipsContributors: (): Promise<UnifiedParticipant[]> =>
+    api.get('/analytics/leaderboard/tips').then((res) => res.data),
 }
 
 export default api

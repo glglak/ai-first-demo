@@ -27,8 +27,9 @@ public record CategoryPerformance(
 
 public record PopularTip(
     string Title,
+    string Category,
     int Likes,
-    string Category
+    string CreatedBy
 );
 
 public record UserActivity(
@@ -38,4 +39,18 @@ public record UserActivity(
     bool CompletedQuiz,
     int GameAttempts,
     int BestScore
+);
+
+public record UnifiedLeaderboardResponse(
+    List<UnifiedParticipant> QuizParticipants,
+    List<UnifiedParticipant> GameParticipants,
+    List<UnifiedParticipant> TipsContributors
+);
+
+public record UnifiedParticipant(
+    string Name,
+    string IpHash,
+    int Score,
+    string Activity,
+    DateTime LastActive
 );

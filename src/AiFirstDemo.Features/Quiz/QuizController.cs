@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using AiFirstDemo.Features.Quiz.Models;
-using MediatR;
 using Microsoft.Extensions.Logging;
 
 namespace AiFirstDemo.Features.Quiz;
@@ -30,6 +29,30 @@ public class QuizController : ControllerBase
         {
             _logger.LogError(ex, "Error getting quiz questions");
             return StatusCode(500, "Error retrieving quiz questions");
+        }
+    }
+
+    [HttpGet("hint/{questionId}")]
+    public async Task<ActionResult> GetQuestionHint(string questionId)
+    {
+        try
+        {
+            _logger.LogInformation("Getting hint for question {QuestionId}", questionId);
+            
+            var hint = await _quizService.GetQuestionHintAsync(questionId);
+            if (hint == null)
+            {
+                _logger.LogWarning("No hint available for question {QuestionId}", questionId);
+                return NotFound("Question not found or hints not available for this question");
+            }
+            
+            _logger.LogInformation("Successfully retrieved hint for question {QuestionId}", questionId);
+            return Ok(new { hint });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting hint for question {QuestionId}", questionId);
+            return StatusCode(500, "Error retrieving question hint");
         }
     }
 

@@ -11,4 +11,6 @@ public interface ITipsService
     Task<bool> UnlikeTipAsync(string tipId, string sessionId);
     Task<List<string>> GetCategoriesAsync();
     Task<Tip?> GetTipAsync(string tipId);
+    Task EnsureTipsSeededAsync();
+    Task ForceReseedAsync();
 }

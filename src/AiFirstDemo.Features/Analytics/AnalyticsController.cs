@@ -32,6 +32,58 @@ public class AnalyticsController : ControllerBase
         }
     }
 
+    [HttpGet("unified-leaderboard")]
+    public async Task<ActionResult<UnifiedLeaderboardResponse>> GetUnifiedLeaderboard()
+    {
+        var leaderboard = await _analyticsService.GetUnifiedLeaderboardAsync();
+        return Ok(leaderboard);
+    }
+
+    [HttpGet("leaderboard/quiz")]
+    public async Task<ActionResult<List<UnifiedParticipant>>> GetQuizParticipants([FromQuery] int limit = 10, [FromQuery] int offset = 0)
+    {
+        try
+        {
+            var participants = await _analyticsService.GetQuizParticipantsAsync(limit, offset);
+            return Ok(participants);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting quiz participants");
+            return StatusCode(500, "Error retrieving quiz participants");
+        }
+    }
+
+    [HttpGet("leaderboard/game")]
+    public async Task<ActionResult<List<UnifiedParticipant>>> GetGameParticipants([FromQuery] int limit = 10, [FromQuery] int offset = 0)
+    {
+        try
+        {
+            var participants = await _analyticsService.GetGameParticipantsAsync(limit, offset);
+            return Ok(participants);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting game participants");
+            return StatusCode(500, "Error retrieving game participants");
+        }
+    }
+
+    [HttpGet("leaderboard/tips")]
+    public async Task<ActionResult<List<UnifiedParticipant>>> GetTipsContributors([FromQuery] int limit = 10, [FromQuery] int offset = 0)
+    {
+        try
+        {
+            var contributors = await _analyticsService.GetTipsContributorsAsync(limit, offset);
+            return Ok(contributors);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting tips contributors");
+            return StatusCode(500, "Error retrieving tips contributors");
+        }
+    }
+
     [HttpGet("users/active")]
     public async Task<ActionResult<List<UserActivity>>> GetActiveUsers()
     {

@@ -7,6 +7,7 @@ public interface IOpenAIService
     Task<List<string>> GenerateTipsAsync(string category, int count = 5);
     Task<string> AnalyzeQuizPerformanceAsync(List<QuizAnalysisData> answers);
     Task<bool> IsContentAppropriateAsync(string content);
+    Task<string> GenerateQuizHintAsync(string question, List<string> options, string category);
 }
 
 public record QuizAnalysisData(

@@ -1,7 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using AiFirstDemo.Features.UserSessions;
 using AiFirstDemo.Features.Quiz;
+using AiFirstDemo.Features.Quiz.Models;
 using AiFirstDemo.Features.SpaceshipGame;
+using AiFirstDemo.Features.SpaceshipGame.Models;
 using AiFirstDemo.Features.TipsAndTricks;
 using AiFirstDemo.Features.Analytics;
 
