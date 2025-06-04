@@ -1,6 +1,5 @@
 using AiFirstDemo.Features.Shared.Models;
 using AiFirstDemo.Infrastructure.Redis;
-using AiFirstDemo.Features.Analytics;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -10,17 +9,15 @@ namespace AiFirstDemo.Features.UserSessions;
 public class UserSessionService : IUserSessionService
 {
     private readonly IRedisService _redis;
-    private readonly IAnalyticsService _analytics;
     private readonly ILogger<UserSessionService> _logger;
     private const string SESSION_KEY_PREFIX = "user:session:";
     private const string IP_SESSION_PREFIX = "ip:session:";
     private const string IP_QUIZ_ATTEMPTS_PREFIX = "ip:quiz:attempts:";
     private const int MAX_QUIZ_ATTEMPTS_PER_DAY = 3;
 
-    public UserSessionService(IRedisService redis, IAnalyticsService analytics, ILogger<UserSessionService> logger)
+    public UserSessionService(IRedisService redis, ILogger<UserSessionService> logger)
     {
         _redis = redis;
-        _analytics = analytics;
         _logger = logger;
     }
 
@@ -39,13 +36,30 @@ public class UserSessionService : IUserSessionService
         );
 
         // Store session data
-        await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", session, TimeSpan.FromHours(24));
+        var sessionKey = $"{SESSION_KEY_PREFIX}{sessionId}";
+        _logger.LogInformation("Storing session with key: {Key}", sessionKey);
+        await _redis.SetAsync(sessionKey, session, TimeSpan.FromHours(24));
+        
+        // Verify it was stored immediately
+        var verifySession = await _redis.GetAsync<UserSession>(sessionKey);
+        if (verifySession != null)
+        {
+            _logger.LogInformation("Session verified immediately after creation: {SessionId}", sessionId);
+        }
+        else
+        {
+            _logger.LogError("SESSION CREATION FAILED: Session not found immediately after creation: {SessionId} with key {Key}", sessionId, sessionKey);
+        }
         
         // Store the latest session for this IP (allow multiple sessions but track the latest)
         await _redis.SetAsync($"{IP_SESSION_PREFIX}{ipHash}", sessionId, TimeSpan.FromHours(24));
         
+        // Store partially masked IP for analytics display (e.g., "192.168.1.xxx")
+        var maskedIp = MaskIpAddress(request.IpAddress);
+        await _redis.SetAsync($"session:ip:display:{sessionId}", maskedIp, TimeSpan.FromHours(24));
+        
         // Track analytics
-        await _analytics.TrackSessionActivityAsync(sessionId, "session_created");
+        await TrackSessionActivityAsync(sessionId, "session_created");
         
         _logger.LogInformation("Created session {SessionId} for user {Name} with IP hash {IpHash}", 
             sessionId, request.Name, ipHash);
@@ -55,11 +69,19 @@ public class UserSessionService : IUserSessionService
 
     public async Task<UserSession?> GetSessionAsync(string sessionId)
     {
-        var session = await _redis.GetAsync<UserSession>($"{SESSION_KEY_PREFIX}{sessionId}");
+        var sessionKey = $"{SESSION_KEY_PREFIX}{sessionId}";
+        _logger.LogInformation("Attempting to retrieve session with key: {Key}", sessionKey);
+        
+        var session = await _redis.GetAsync<UserSession>(sessionKey);
         
         if (session != null)
         {
+            _logger.LogInformation("Session found successfully: {SessionId}", sessionId);
             await UpdateLastActivityAsync(sessionId);
+        }
+        else
+        {
+            _logger.LogWarning("Session NOT FOUND in Redis: {SessionId} with key {Key}", sessionId, sessionKey);
         }
         
         return session;
@@ -110,9 +132,9 @@ public class UserSessionService : IUserSessionService
                 // Retry the increment after cleanup
                 var currentAttempts = await _redis.IncrementAsync(attemptKey);
                 await _redis.SetExpiryAsync(attemptKey, TimeSpan.FromDays(1));
-                
-                var updatedSession = session with { HasCompletedQuiz = true, LastActivity = DateTime.UtcNow };
-                return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromHours(24));
+
+        var updatedSession = session with { HasCompletedQuiz = true, LastActivity = DateTime.UtcNow };
+        return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromHours(24));
             }
             catch (Exception retryEx)
             {
@@ -219,6 +241,79 @@ public class UserSessionService : IUserSessionService
         {
             _logger.LogError(ex, "Error during quiz counter cleanup");
             return 0;
+        }
+    }
+
+    public async Task<string?> GetDisplayIpAsync(string sessionId)
+    {
+        try
+        {
+            var maskedIp = await _redis.GetStringAsync($"session:ip:display:{sessionId}");
+            return maskedIp ?? "unknown";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error getting display IP for session {SessionId}", sessionId);
+            return "unknown";
+        }
+    }
+
+    private string MaskIpAddress(string ipAddress)
+    {
+        try
+        {
+            // For IPv4: show first two octets, mask the last two (e.g., "192.168.xxx.xxx")
+            if (ipAddress.Contains('.'))
+            {
+                var parts = ipAddress.Split('.');
+                if (parts.Length == 4)
+                {
+                    return $"{parts[0]}.{parts[1]}.xxx.xxx";
+                }
+            }
+            
+            // For IPv6 or other formats: show first part and mask the rest
+            if (ipAddress.Contains(':'))
+            {
+                var parts = ipAddress.Split(':');
+                if (parts.Length > 2)
+                {
+                    return $"{parts[0]}:{parts[1]}:xxxx::xxxx";
+                }
+            }
+            
+            // Fallback: show first 4 characters
+            return ipAddress.Length > 4 ? ipAddress.Substring(0, 4) + "xxx" : "xxx";
+        }
+        catch
+        {
+            return "xxx.xxx.xxx.xxx";
+        }
+    }
+
+    private async Task TrackSessionActivityAsync(string sessionId, string activity)
+    {
+        try
+        {
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            var hour = DateTime.UtcNow.ToString("yyyy-MM-dd-HH");
+            
+            // Track daily totals
+            await _redis.IncrementAsync($"analytics:daily:{today}:totalSessions");
+            
+            // Track hourly activity
+            await _redis.IncrementAsync($"analytics:hourly:{hour}:sessions");
+            
+            // Track user activity
+            await _redis.HashSetAsync($"analytics:user:activity:{sessionId}", "lastActivity", DateTime.UtcNow.ToString());
+            await _redis.HashSetAsync($"analytics:user:activity:{sessionId}", "activity", activity);
+            
+            _logger.LogInformation("Tracked activity: {Activity} for session {SessionId}", activity, sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error tracking session activity for {SessionId}", sessionId);
+            // Don't throw - analytics tracking should not break session creation
         }
     }
 }

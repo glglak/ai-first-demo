@@ -19,6 +19,6 @@ public interface IRedisService
     Task<bool> SortedSetAddAsync(string key, string member, double score);
     Task<List<(string Member, double Score)>> SortedSetRangeWithScoresAsync(string key, long start = 0, long stop = -1, bool descending = false);
     Task<long> SortedSetRemoveAsync(string key, string member);
-    double? SortedSetScoreAsync(string key, string member);
+    double? SortedSetScore(string key, string member);
     Task<List<string>> GetKeysAsync(string pattern);
 }

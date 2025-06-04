@@ -6,7 +6,25 @@ This guide will walk you through deploying the AI First Demo to Azure using:
 - **Azure App Service** for hosting the .NET API and React frontend
 - **Azure Cache for Redis** for data storage
 - **Azure OpenAI** for AI features
-- **Azure Application Insights** for monitoring
+- **Configuration via Environment Variables** in Azure App Service
+
+## 🔧 **Configuration Strategy**
+
+### **Local Development**
+- Configuration values are read from `appsettings.Development.json`
+- Contains localhost Redis connection and development secrets
+- Perfect for local debugging and development
+
+### **Azure Production**
+- Configuration values are **automatically overridden** by Azure App Service Application Settings
+- Azure App Service converts Application Settings to environment variables
+- .NET Configuration system automatically uses environment variables over appsettings.json values
+- **No secrets stored in source code** - everything is configured through Azure Portal
+
+### **How It Works**
+1. **Local**: .NET reads from `appsettings.Development.json`
+2. **Azure**: .NET reads from environment variables (set via Azure App Service Application Settings)
+3. **Environment variables always take precedence** over appsettings.json values
 
 ## 🏗️ **Azure Resources Needed**
 
@@ -82,7 +100,7 @@ az cognitiveservices account create \
   --sku S0
 ```
 
-### **Phase 2: Configure Application Settings**
+### **Phase 2: Configure Application Settings (Environment Variables)**
 
 #### **2.1 Get Connection Strings**
 
@@ -97,236 +115,162 @@ az cognitiveservices account show --name "ai-first-demo-openai" --resource-group
 az cognitiveservices account keys list --name "ai-first-demo-openai" --resource-group "ai-first-demo-rg"
 ```
 
-#### **2.2 Configure App Settings**
+#### **2.2 Configure App Settings (THE IMPORTANT PART)**
+
+**Using Azure CLI:**
 ```bash
 az webapp config appsettings set \
   --name "ai-first-demo-app" \
   --resource-group "ai-first-demo-rg" \
   --settings \
-    "ConnectionStrings__Redis=YOUR_REDIS_CONNECTION_STRING" \
-    "AzureOpenAI__Endpoint=https://ai-first-demo-openai.openai.azure.com/" \
-    "AzureOpenAI__ApiKey=YOUR_OPENAI_API_KEY" \
+    "ConnectionStrings__Redis=YOUR_REDIS_CONNECTION_STRING_HERE" \
+    "AzureOpenAI__Endpoint=https://your-openai-instance.openai.azure.com/" \
+    "AzureOpenAI__ApiKey=YOUR_OPENAI_API_KEY_HERE" \
     "AzureOpenAI__DeploymentName=gpt-4" \
+    "AZURE_APP_URL=https://your-app-name.azurewebsites.net" \
     "ASPNETCORE_ENVIRONMENT=Production"
 ```
 
-### **Phase 3: Prepare Application for Deployment**
+**Using Azure Portal:**
+1. Go to your Azure App Service
+2. Navigate to **Configuration** → **Application settings**
+3. Add the following settings:
 
-#### **3.1 Update Production Configuration**
+| Name | Value |
+|------|-------|
+| `ConnectionStrings__Redis` | `your-redis-cache.redis.cache.windows.net:6380,password=YOUR_KEY,ssl=True,abortConnect=False` |
+| `AzureOpenAI__Endpoint` | `https://your-openai-instance.openai.azure.com/` |
+| `AzureOpenAI__ApiKey` | `your-openai-api-key` |
+| `AzureOpenAI__DeploymentName` | `gpt-4` |
+| `AZURE_APP_URL` | `https://your-app-name.azurewebsites.net` |
+| `ASPNETCORE_ENVIRONMENT` | `Production` |
 
-Create `src/AiFirstDemo.Api/appsettings.Production.json`:
-```json
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.AspNetCore": "Warning"
-    }
-  },
-  "AllowedHosts": "*",
-  "ConnectionStrings": {
-    "Redis": "#{ConnectionStrings__Redis}#"
-  },
-  "AzureOpenAI": {
-    "Endpoint": "#{AzureOpenAI__Endpoint}#",
-    "ApiKey": "#{AzureOpenAI__ApiKey}#",
-    "DeploymentName": "#{AzureOpenAI__DeploymentName}#"
-  }
-}
+### **Phase 3: Deploy Application**
+
+#### **3.1 Build and Deploy Using PowerShell Script**
+```powershell
+# Run the build script from project root
+./build-azure.ps1
+
+# This will create a ./publish folder ready for deployment
 ```
 
-#### **3.2 Update Frontend for Production**
-
-Update `src/AiFirstDemo.Web/vite.config.ts`:
-```typescript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-export default defineConfig({
-  plugins: [react()],
-  build: {
-    outDir: '../AiFirstDemo.Api/wwwroot',
-    emptyOutDir: true,
-  },
-  server: {
-    proxy: {
-      '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:5001',
-        changeOrigin: true,
-        secure: false,
-      }
-    }
-  }
-})
-```
-
-#### **3.3 Build Frontend for Production**
+#### **3.2 Deploy Using Azure CLI**
 ```bash
-# Navigate to frontend
-cd src/AiFirstDemo.Web
-
-# Install dependencies
-npm install
-
-# Build for production (outputs to API wwwroot)
-npm run build
-```
-
-#### **3.4 Configure API to Serve Static Files**
-
-Update `src/AiFirstDemo.Api/Program.cs`:
-```csharp
-// Add after var app = builder.Build();
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
-// Add before app.Run();
-app.MapFallbackToFile("index.html");
-```
-
-### **Phase 4: Deploy to Azure**
-
-#### **4.1 Deploy Using Azure CLI**
-```bash
-# Navigate to API project
-cd src/AiFirstDemo.Api
-
-# Create deployment package
-dotnet publish -c Release -o ./publish
+# Create ZIP file from publish folder
+Compress-Archive -Path "./publish/*" -DestinationPath "./deployment.zip"
 
 # Deploy to Azure
 az webapp deployment source config-zip \
   --name "ai-first-demo-app" \
   --resource-group "ai-first-demo-rg" \
-  --src "./publish.zip"
+  --src "./deployment.zip"
 ```
 
-#### **4.2 Alternative: Deploy Using Visual Studio**
-1. Right-click on `AiFirstDemo.Api` project
-2. Select "Publish"
-3. Choose "Azure App Service"
-4. Select your subscription and app service
-5. Click "Publish"
+#### **3.3 Alternative: Deploy Using Azure Portal**
+1. Run `./build-azure.ps1` to create publish folder
+2. Zip the `./publish` folder
+3. Go to Azure App Service → **Deployment Center** → **ZIP Deploy**
+4. Upload the ZIP file
 
-### **Phase 5: Configure Custom Domain (Optional)**
+## ✅ **Configuration Verification**
 
-#### **5.1 Add Custom Domain**
-```bash
-az webapp config hostname add \
-  --webapp-name "ai-first-demo-app" \
-  --resource-group "ai-first-demo-rg" \
-  --hostname "yourdomain.com"
-```
+### **How .NET Configuration Works:**
 
-#### **5.2 Enable SSL**
-```bash
-az webapp config ssl bind \
-  --name "ai-first-demo-app" \
-  --resource-group "ai-first-demo-rg" \
-  --certificate-thumbprint YOUR_CERT_THUMBPRINT \
-  --ssl-type SNI
-```
+1. **Priority Order** (highest to lowest):
+   - Environment Variables (Azure App Service Application Settings)
+   - appsettings.Production.json
+   - appsettings.json
 
-## 🔧 **Post-Deployment Configuration**
+2. **In Development:**
+   - Reads from `appsettings.Development.json`
+   - Contains localhost values for local testing
 
-### **1. Enable Application Insights**
-```bash
-az monitor app-insights component create \
-  --app "ai-first-demo-insights" \
-  --location "East US" \
-  --resource-group "ai-first-demo-rg"
+3. **In Azure:**
+   - Azure App Service converts Application Settings to environment variables
+   - Environment variables **automatically override** appsettings.json values
+   - No code changes needed!
 
-# Get instrumentation key
-az monitor app-insights component show \
-  --app "ai-first-demo-insights" \
-  --resource-group "ai-first-demo-rg"
-```
+### **Example:**
+```csharp
+// This code works in both environments:
+var redisConnection = configuration.GetConnectionString("Redis");
 
-### **2. Configure Monitoring**
-Add to app settings:
-```bash
-az webapp config appsettings set \
-  --name "ai-first-demo-app" \
-  --resource-group "ai-first-demo-rg" \
-  --settings \
-    "APPLICATIONINSIGHTS_CONNECTION_STRING=YOUR_CONNECTION_STRING"
-```
-
-### **3. Enable Always On**
-```bash
-az webapp config set \
-  --name "ai-first-demo-app" \
-  --resource-group "ai-first-demo-rg" \
-  --always-on true
-```
-
-### **4. Configure Auto-Scaling**
-```bash
-az monitor autoscale create \
-  --resource-group "ai-first-demo-rg" \
-  --resource "ai-first-demo-plan" \
-  --resource-type Microsoft.Web/serverfarms \
-  --name "ai-first-demo-autoscale" \
-  --min-count 1 \
-  --max-count 3 \
-  --count 1
+// Locally: reads from appsettings.Development.json
+// Azure: reads from ConnectionStrings__Redis environment variable
 ```
 
 ## 🔍 **Verification & Testing**
 
-### **1. Health Checks**
+### **1. Verify Configuration**
+```bash
+# Check app settings are configured correctly
+az webapp config appsettings list --name "ai-first-demo-app" --resource-group "ai-first-demo-rg"
+```
+
+### **2. Health Checks**
 - Visit: `https://your-app.azurewebsites.net/swagger`
 - Check: API documentation loads
 - Test: Create a session via API
 
-### **2. Frontend Verification**
+### **3. Frontend Verification**
 - Visit: `https://your-app.azurewebsites.net`
 - Check: React app loads correctly
 - Test: Navigation between features
 
-### **3. Redis Connection**
-- Check: Application Insights for Redis connection logs
-- Test: Create and retrieve data
-
-### **4. OpenAI Integration**
-- Test: Generate quiz questions
-- Check: AI responses are working
+### **4. Feature Testing**
+- Test: Create user session
+- Test: Take quiz with AI hints
+- Test: Play spaceship game
+- Test: View analytics
 
 ## 🚨 **Troubleshooting**
 
-### **Common Issues:**
+### **Common Configuration Issues:**
 
-#### **1. "Application failed to start"**
-- Check Application Insights logs
-- Verify connection strings are correct
-- Ensure .NET 8 runtime is selected
+#### **1. "Redis connection timeout"**
+```bash
+# Check your Redis connection string format:
+# Correct: "cachename.redis.cache.windows.net:6380,password=KEY,ssl=True,abortConnect=False"
+# Wrong: Missing ssl=True or wrong port
+```
 
-#### **2. "Redis connection timeout"**
-- Verify Redis cache is running
-- Check firewall settings
-- Validate connection string format
+#### **2. "OpenAI API errors"**
+```bash
+# Verify settings match exactly:
+az webapp config appsettings list --name "your-app" --resource-group "your-rg" | grep -i openai
+```
 
-#### **3. "OpenAI API errors"**
-- Verify API key is correct
-- Check deployment name matches
-- Ensure quota limits aren't exceeded
-
-#### **4. "Static files not served"**
-- Verify frontend build completed
-- Check wwwroot folder contains files
-- Ensure UseStaticFiles() is configured
+#### **3. "Application failed to start"**
+```bash
+# View real-time logs
+az webapp log tail --name "your-app" --resource-group "your-rg"
+```
 
 ### **Debugging Commands:**
 ```bash
+# Check all environment variables
+az webapp config appsettings list --name "ai-first-demo-app" --resource-group "ai-first-demo-rg"
+
 # View application logs
 az webapp log tail --name "ai-first-demo-app" --resource-group "ai-first-demo-rg"
-
-# Check app settings
-az webapp config appsettings list --name "ai-first-demo-app" --resource-group "ai-first-demo-rg"
 
 # Restart application
 az webapp restart --name "ai-first-demo-app" --resource-group "ai-first-demo-rg"
 ```
+
+## 🔐 **Security Best Practices**
+
+### **✅ What We Do Right:**
+- **No secrets in source code** - everything in Azure App Service settings
+- **Environment variables override** configuration files
+- **Production secrets isolated** from development environment
+- **Connection strings encrypted** in Azure App Service
+
+### **✅ Configuration Files:**
+- `appsettings.Development.json` - Contains localhost settings for development
+- `appsettings.Production.json` - Contains placeholder values (overridden by Azure)
+- **Real secrets only exist in Azure App Service Application Settings**
 
 ## 💰 **Cost Optimization**
 
@@ -340,130 +284,17 @@ az webapp restart --name "ai-first-demo-app" --resource-group "ai-first-demo-rg"
 - Redis: Standard C1 ($~25/month)
 - OpenAI: Pay-per-use (varies)
 
-### **Cost-Saving Tips:**
-1. Use **Dev/Test pricing** for non-production
-2. Enable **auto-shutdown** for development environments
-3. Monitor **OpenAI usage** to avoid unexpected costs
-4. Use **Azure Cost Management** for budget alerts
-
-## 🔄 **CI/CD Pipeline (Optional)**
-
-### **GitHub Actions Workflow:**
-Create `.github/workflows/azure-deploy.yml`:
-```yaml
-name: Deploy to Azure
-
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: '8.0.x'
-        
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-        
-    - name: Build Frontend
-      run: |
-        cd src/AiFirstDemo.Web
-        npm install
-        npm run build
-        
-    - name: Build Backend
-      run: |
-        cd src/AiFirstDemo.Api
-        dotnet publish -c Release -o ./publish
-        
-    - name: Deploy to Azure
-      uses: azure/webapps-deploy@v2
-      with:
-        app-name: 'ai-first-demo-app'
-        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-        package: './src/AiFirstDemo.Api/publish'
-```
-
 ## 🎉 **Success!**
 
-Your AI First Demo is now running on Azure! 
+Your AI First Demo is now running on Azure with proper configuration management!
 
-**Next Steps:**
-1. Set up monitoring and alerts
-2. Configure backup strategies
-3. Implement security best practices
-4. Plan for scaling and performance optimization
+**Key Benefits:**
+- ✅ **Secure**: No secrets in source code
+- ✅ **Simple**: Environment variables automatically override settings  
+- ✅ **Flexible**: Easy to change configuration without code changes
+- ✅ **Best Practice**: Follows .NET configuration conventions
 
-**Useful Links:**
-- [Azure App Service Documentation](https://docs.microsoft.com/en-us/azure/app-service/)
-- [Azure Cache for Redis Documentation](https://docs.microsoft.com/en-us/azure/azure-cache-for-redis/)
-- [Azure OpenAI Documentation](https://docs.microsoft.com/en-us/azure/cognitive-services/openai/)
-
-## Quick Deployment Package
-
-To create a deployment package for Azure App Service, run this single command from the project root:
-
-```bash
-dotnet publish src/AiFirstDemo.Api/AiFirstDemo.Api.csproj -c Release -o ./publish --self-contained false
-```
-
-This will create a `./publish` folder containing everything needed for Azure App Service deployment.
-
-## Deployment Steps
-
-1. **Package the application** (run the command above)
-2. **Zip the publish folder**: 
-   - Right-click the `./publish` folder → "Send to" → "Compressed folder"
-   - Or use: `Compress-Archive -Path ./publish/* -DestinationPath deployment.zip`
-3. **Upload to Azure App Service**:
-   - Go to your Azure App Service in the portal
-   - Navigate to "Deployment Center" → "ZIP Deploy"
-   - Upload the zip file
-
-## Configuration
-
-✅ **Production secrets are configured** in `appsettings.Production.json`
-✅ **Secrets are protected** from Git commits via .gitignore
-✅ **Static files are included** (React build is copied to wwwroot)
-
-## Azure App Service Settings
-
-Make sure your Azure App Service has these settings:
-
-- **Runtime**: .NET 8
-- **Platform**: 64-bit
-- **Always On**: Enabled (for production)
-- **ARR Affinity**: Disabled (for better performance)
-
-## Environment Variables (Optional)
-
-If you prefer environment variables over appsettings.json, you can set these in Azure:
-
-```
-ConnectionStrings__Redis=your-redis-connection-string
-OpenAI__ApiKey=your-openai-api-key
-OpenAI__BaseUrl=your-azure-openai-endpoint
-```
-
-## Verification
-
-After deployment, test these endpoints:
-- `https://your-app.azurewebsites.net/` - Should show the React app
-- `https://your-app.azurewebsites.net/api/health` - Should return 200 OK
-- `https://your-app.azurewebsites.net/api/analytics/dashboard` - Should return analytics data
-
-## Notes
-
-- The React app is built and included in the .NET publish output
-- Static files are served with proper caching headers
-- SignalR is configured for Azure App Service
-- Logs are written to the file system (viewable in Kudu console) 
+**What happens:**
+1. **Development**: Uses `appsettings.Development.json` (localhost values)
+2. **Azure**: Uses Azure App Service Application Settings (production values)
+3. **Automatic**: No code changes needed between environments! 

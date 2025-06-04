@@ -40,12 +40,27 @@ public class AnalyticsController : ControllerBase
     }
 
     [HttpGet("leaderboard/quiz")]
-    public async Task<ActionResult<List<UnifiedParticipant>>> GetQuizParticipants([FromQuery] int limit = 10, [FromQuery] int offset = 0)
+    public async Task<ActionResult<PaginatedResponse<UnifiedParticipant>>> GetQuizParticipants([FromQuery] int limit = 10, [FromQuery] int offset = 0)
     {
         try
         {
             var participants = await _analyticsService.GetQuizParticipantsAsync(limit, offset);
-            return Ok(participants);
+            var totalCount = await _analyticsService.GetQuizParticipantsTotalCountAsync();
+            
+            var currentPage = (offset / limit) + 1;
+            var hasNext = offset + limit < totalCount;
+            var hasPrevious = offset > 0;
+            
+            var response = new PaginatedResponse<UnifiedParticipant>(
+                Data: participants,
+                Total: totalCount,
+                Page: currentPage,
+                PageSize: limit,
+                HasNext: hasNext,
+                HasPrevious: hasPrevious
+            );
+            
+            return Ok(response);
         }
         catch (Exception ex)
         {
@@ -55,12 +70,27 @@ public class AnalyticsController : ControllerBase
     }
 
     [HttpGet("leaderboard/game")]
-    public async Task<ActionResult<List<UnifiedParticipant>>> GetGameParticipants([FromQuery] int limit = 10, [FromQuery] int offset = 0)
+    public async Task<ActionResult<PaginatedResponse<UnifiedParticipant>>> GetGameParticipants([FromQuery] int limit = 10, [FromQuery] int offset = 0)
     {
         try
         {
             var participants = await _analyticsService.GetGameParticipantsAsync(limit, offset);
-            return Ok(participants);
+            var totalCount = await _analyticsService.GetGameParticipantsTotalCountAsync();
+            
+            var currentPage = (offset / limit) + 1;
+            var hasNext = offset + limit < totalCount;
+            var hasPrevious = offset > 0;
+            
+            var response = new PaginatedResponse<UnifiedParticipant>(
+                Data: participants,
+                Total: totalCount,
+                Page: currentPage,
+                PageSize: limit,
+                HasNext: hasNext,
+                HasPrevious: hasPrevious
+            );
+            
+            return Ok(response);
         }
         catch (Exception ex)
         {
@@ -70,12 +100,27 @@ public class AnalyticsController : ControllerBase
     }
 
     [HttpGet("leaderboard/tips")]
-    public async Task<ActionResult<List<UnifiedParticipant>>> GetTipsContributors([FromQuery] int limit = 10, [FromQuery] int offset = 0)
+    public async Task<ActionResult<PaginatedResponse<UnifiedParticipant>>> GetTipsContributors([FromQuery] int limit = 10, [FromQuery] int offset = 0)
     {
         try
         {
             var contributors = await _analyticsService.GetTipsContributorsAsync(limit, offset);
-            return Ok(contributors);
+            var totalCount = await _analyticsService.GetTipsContributorsTotalCountAsync();
+            
+            var currentPage = (offset / limit) + 1;
+            var hasNext = offset + limit < totalCount;
+            var hasPrevious = offset > 0;
+            
+            var response = new PaginatedResponse<UnifiedParticipant>(
+                Data: contributors,
+                Total: totalCount,
+                Page: currentPage,
+                PageSize: limit,
+                HasNext: hasNext,
+                HasPrevious: hasPrevious
+            );
+            
+            return Ok(response);
         }
         catch (Exception ex)
         {

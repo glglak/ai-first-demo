@@ -264,7 +264,7 @@ public class RedisService : IRedisService
         return await _database.SortedSetRemoveAsync(key, member) ? 1 : 0;
     }
 
-    public double? SortedSetScoreAsync(string key, string member)
+    public double? SortedSetScore(string key, string member)
     {
         if (!_isConnected || _database == null)
         {

@@ -6,6 +6,8 @@ using AiFirstDemo.Features.Quiz.Models;
 using AiFirstDemo.Features.Shared.Models;
 using AiFirstDemo.Features.TipsAndTricks.Models;
 using AiFirstDemo.Features.SpaceshipGame.Models;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace AiFirstDemo.Features.Analytics;
 
@@ -187,73 +189,231 @@ public class AnalyticsService : IAnalyticsService
     {
         try
         {
-            var quizParticipants = new List<UnifiedParticipant>();
+            _logger.LogInformation("Getting quiz participants with limit {Limit}, offset {Offset}...", limit, offset);
             
-            _logger.LogInformation("Getting quiz participants from Redis with limit {Limit}, offset {Offset}...", limit, offset);
+            // Clear any old corrupted cache on first call
+            if (offset == 0)
+            {
+                await ClearOldCacheAsync();
+            }
             
-            // Get all quiz attempts from Redis
-            // Quiz attempts are stored as "quiz:attempt:{sessionId}"
-            var quizKeys = await _redis.GetKeysAsync("quiz:attempt:*");
+            // Use server-side pagination - get sorted keys first
+            var sortedAttempts = await GetSortedQuizAttemptsAsync();
             
-            foreach (var key in quizKeys)
+            // Apply pagination to the sorted list
+            var paginatedAttempts = sortedAttempts
+                .Skip(offset)
+                .Take(limit)
+                .ToList();
+            
+            // Now get the detailed data only for the items we need
+            var results = new List<UnifiedParticipant>();
+            
+            foreach (var attemptInfo in paginatedAttempts)
             {
                 try
                 {
-                    var attempt = await _redis.GetAsync<QuizAttempt>(key);
-                    if (attempt != null)
+                    var session = await _redis.GetAsync<UserSession>($"user:session:{attemptInfo.SessionId}");
+                    if (session != null)
                     {
-                        var sessionId = key.Replace("quiz:attempt:", "");
-                        
-                        // Get session data to get user name and IP hash
-                        var session = await _redis.GetAsync<UserSession>($"user:session:{sessionId}");
-                        if (session != null)
+                        results.Add(new UnifiedParticipant(
+                            Name: session.Name,
+                            IpHash: "hidden", // Not needed for UI
+                            Score: attemptInfo.Score,
+                            Activity: attemptInfo.Activity,
+                            LastActive: attemptInfo.CompletedAt
+                        ));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error processing attempt for session {SessionId}", attemptInfo.SessionId);
+                }
+            }
+            
+            _logger.LogInformation("Returning {Count} quiz participants (offset: {Offset})", results.Count, offset);
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting quiz participants");
+            return new List<UnifiedParticipant>();
+        }
+    }
+
+    private async Task<List<QuizAttemptInfo>> GetSortedQuizAttemptsAsync()
+    {
+        var cacheKey = "analytics:quiz:sorted:v2"; // v2 to avoid old cache
+        var cacheExpiry = TimeSpan.FromMinutes(5);
+        
+        // Try cache first
+        var cachedData = await _redis.GetStringAsync(cacheKey);
+        if (!string.IsNullOrEmpty(cachedData))
+        {
+            try
+            {
+                var cached = System.Text.Json.JsonSerializer.Deserialize<List<QuizAttemptInfo>>(cachedData);
+                if (cached != null)
+                {
+                    _logger.LogInformation("Using cached sorted quiz attempts: {Count} items", cached.Count);
+                    return cached;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to deserialize cached quiz attempts, rebuilding...");
+            }
+        }
+        
+        // Build fresh sorted list
+        _logger.LogInformation("Building fresh sorted quiz attempts...");
+        var attempts = await BuildSortedQuizAttemptsAsync();
+        
+        // Cache the sorted list
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(attempts);
+            await _redis.SetAsync(cacheKey, json, cacheExpiry);
+            _logger.LogInformation("Cached {Count} sorted quiz attempts", attempts.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to cache sorted quiz attempts");
+        }
+        
+        return attempts;
+    }
+    
+    private async Task<List<QuizAttemptInfo>> BuildSortedQuizAttemptsAsync()
+    {
+        var attempts = new List<QuizAttemptInfo>();
+        var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
+        var processedAttempts = new HashSet<string>();
+        
+        try
+        {
+            // Get keys
+            var ipAttemptKeys = await _redis.GetKeysAsync("quiz:ip:attempt:*");
+            var regularAttemptKeys = await _redis.GetKeysAsync("quiz:attempt:*");
+            
+            _logger.LogInformation("Processing {IpCount} IP attempts and {RegularCount} regular attempts", 
+                ipAttemptKeys.Count, regularAttemptKeys.Count);
+            
+            // Process IP-based attempts
+            foreach (var ipKey in ipAttemptKeys)
+            {
+                try
+                {
+                    var attempt = await _redis.GetAsync<QuizAttempt>(ipKey);
+                    if (attempt != null && attempt.CompletedAt >= thirtyDaysAgo)
+                    {
+                        var keyParts = ipKey.Split(':');
+                        if (keyParts.Length >= 6)
                         {
-                            quizParticipants.Add(new UnifiedParticipant(
-                                Name: session.Name,
-                                IpHash: session.IpHash,
-                                Score: attempt.Score,
-                                Activity: "Quiz Completed",
-                                LastActive: attempt.CompletedAt
-                            ));
+                            var sessionId = keyParts[5];
+                            var attemptNumber = keyParts[4];
+                            var attemptKey = $"{sessionId}:{attempt.CompletedAt:yyyy-MM-dd-HH-mm-ss}:{attempt.Score}";
+                            
+                            if (!processedAttempts.Contains(attemptKey))
+                            {
+                                attempts.Add(new QuizAttemptInfo(
+                                    SessionId: sessionId,
+                                    Score: attempt.Score,
+                                    CompletedAt: attempt.CompletedAt,
+                                    Activity: $"Quiz Completed - Try #{attemptNumber}"
+                                ));
+                                processedAttempts.Add(attemptKey);
+                            }
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error processing quiz attempt {Key}", key);
+                    _logger.LogWarning(ex, "Error processing IP attempt {Key}", ipKey);
                 }
             }
             
-            // Apply pagination: sort by score descending, then apply offset and limit
-            var paginatedResults = quizParticipants
-                .OrderByDescending(p => p.Score)
-                .ThenByDescending(p => p.LastActive)
-                .Skip(offset)
-                .Take(limit)
-                .ToList();
+            // Process regular attempts
+            foreach (var key in regularAttemptKeys)
+            {
+                try
+                {
+                    var attempt = await _redis.GetAsync<QuizAttempt>(key);
+                    if (attempt != null && attempt.CompletedAt >= thirtyDaysAgo)
+                    {
+                        var sessionId = key.Replace("quiz:attempt:", "");
+                        var attemptKey = $"{sessionId}:{attempt.CompletedAt:yyyy-MM-dd-HH-mm-ss}:{attempt.Score}";
+                        
+                        if (!processedAttempts.Contains(attemptKey))
+                        {
+                            attempts.Add(new QuizAttemptInfo(
+                                SessionId: sessionId,
+                                Score: attempt.Score,
+                                CompletedAt: attempt.CompletedAt,
+                                Activity: "Quiz Completed - Try #1"
+                            ));
+                            processedAttempts.Add(attemptKey);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error processing regular attempt {Key}", key);
+                }
+            }
             
-            _logger.LogInformation("Found {Total} quiz participants, returning {Count} with pagination", quizParticipants.Count, paginatedResults.Count);
-            return paginatedResults;
+            // Sort by score descending, then by date descending
+            return attempts
+                .OrderByDescending(a => a.Score)
+                .ThenByDescending(a => a.CompletedAt)
+                .ToList();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error getting quiz participants");
-            return new List<UnifiedParticipant>();
+            _logger.LogError(ex, "Error building sorted quiz attempts");
+            return new List<QuizAttemptInfo>();
         }
     }
+    
+    private async Task ClearOldCacheAsync()
+    {
+        try
+        {
+            // Clear old cache keys that might have serialization issues
+            var oldKeys = new[]
+            {
+                "analytics:quiz:leaderboard",
+                "analytics:quiz:sorted",
+                "analytics:quiz:sorted:v1"
+            };
+            
+            foreach (var key in oldKeys)
+            {
+                await _redis.DeleteAsync(key);
+            }
+            
+            _logger.LogInformation("Cleared old analytics cache keys");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error clearing old cache");
+        }
+    }
+
+    // Simple data transfer record for caching
+    private record QuizAttemptInfo(string SessionId, int Score, DateTime CompletedAt, string Activity);
 
     public async Task<List<UnifiedParticipant>> GetGameParticipantsAsync(int limit = 10, int offset = 0)
     {
         try
         {
             var gameParticipants = new List<UnifiedParticipant>();
+            var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30); // Extended to 30 days to match game score retention
             
-            _logger.LogInformation("Getting game participants from leaderboard with limit {Limit}, offset {Offset}...", limit, offset);
+            _logger.LogInformation("Getting game participants from last 30 days with limit {Limit}, offset {Offset}...", limit, offset);
             
-            // Get game participants from leaderboard - this is fast since it's a sorted set
-            // We get more than needed to handle offset properly, but cap at reasonable limit
-            var maxFetch = Math.Min(offset + limit, 100); // Don't fetch more than 100 total
-            var gameLeaderboard = await _redis.SortedSetRangeWithScoresAsync("game:leaderboard:alltime", 0, maxFetch - 1, true);
+            // Get game participants from leaderboard - but we need to filter by date
+            var gameLeaderboard = await _redis.SortedSetRangeWithScoresAsync("game:leaderboard:alltime", 0, -1, true);
             
             foreach (var entry in gameLeaderboard)
             {
@@ -265,23 +425,22 @@ public class AnalyticsService : IAnalyticsService
                         var playerName = playerData[0];
                         var scoreId = playerData[1];
                         
-                        // Try to get more details from the score record
+                        // Get the score record to check the date and get session info
                         var gameScore = await _redis.GetAsync<GameScore>($"game:score:{scoreId}");
-                        var ipHash = "game-player";
-                        var lastActive = DateTime.UtcNow;
-                        
-                        if (gameScore != null)
+                        if (gameScore != null && gameScore.AchievedAt >= thirtyDaysAgo)
                         {
-                            lastActive = gameScore.AchievedAt;
+                            // Get session data to get IP information
+                            var session = await _redis.GetAsync<UserSession>($"user:session:{gameScore.SessionId}");
+                            var displayIp = session != null ? await GetDisplayIpAsync(gameScore.SessionId) : "unknown";
+                            
+                            gameParticipants.Add(new UnifiedParticipant(
+                                Name: playerName,
+                                IpHash: displayIp ?? "unknown",
+                                Score: (int)entry.Score,
+                                Activity: $"Game High Score (Level {gameScore.Level})",
+                                LastActive: gameScore.AchievedAt
+                            ));
                         }
-                        
-                        gameParticipants.Add(new UnifiedParticipant(
-                            Name: playerName,
-                            IpHash: ipHash,
-                            Score: (int)entry.Score,
-                            Activity: "Game High Score",
-                            LastActive: lastActive
-                        ));
                     }
                 }
                 catch (Exception ex)
@@ -290,13 +449,15 @@ public class AnalyticsService : IAnalyticsService
                 }
             }
             
-            // Apply pagination (data is already sorted by Redis)
+            // Sort by score descending and apply pagination
             var paginatedResults = gameParticipants
+                .OrderByDescending(p => p.Score)
+                .ThenByDescending(p => p.LastActive)
                 .Skip(offset)
                 .Take(limit)
                 .ToList();
             
-            _logger.LogInformation("Found {Total} game participants, returning {Count} with pagination", gameParticipants.Count, paginatedResults.Count);
+            _logger.LogInformation("Found {Total} game participants in last 30 days, returning {Count} with pagination", gameParticipants.Count, paginatedResults.Count);
             return paginatedResults;
         }
         catch (Exception ex)
@@ -322,6 +483,12 @@ public class AnalyticsService : IAnalyticsService
             {
                 try
                 {
+                    // Skip known problematic keys
+                    if (key.Contains("seeded") || key.Contains("categories") || key.Contains("likes"))
+                    {
+                        continue;
+                    }
+                    
                     var tip = await _redis.GetAsync<Tip>(key);
                     if (tip != null && !tip.IsAiGenerated && !string.IsNullOrEmpty(tip.CreatedBy))
                     {
@@ -333,6 +500,11 @@ public class AnalyticsService : IAnalyticsService
                             LastActive: tip.CreatedAt
                         ));
                     }
+                }
+                catch (System.Text.Json.JsonException jsonEx)
+                {
+                    _logger.LogWarning(jsonEx, "JSON deserialization error for tip key {Key}, possibly corrupted data. Skipping this tip.", key);
+                    // Continue processing other tips
                 }
                 catch (Exception ex)
                 {
@@ -363,6 +535,152 @@ public class AnalyticsService : IAnalyticsService
         {
             _logger.LogWarning(ex, "Error getting tips contributors");
             return new List<UnifiedParticipant>();
+        }
+    }
+
+    private async Task<string?> GetDisplayIpAsync(string sessionId)
+    {
+        try
+        {
+            return await _redis.GetStringAsync($"session:ip:display:{sessionId}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error getting display IP for session {SessionId}", sessionId);
+            return null;
+        }
+    }
+
+    private string MaskIpAddress(string ipAddress)
+    {
+        try
+        {
+            // For IPv4: show first two octets, mask the last two (e.g., "192.168.xxx.xxx")
+            if (ipAddress.Contains('.'))
+            {
+                var parts = ipAddress.Split('.');
+                if (parts.Length == 4)
+                {
+                    return $"{parts[0]}.{parts[1]}.xxx.xxx";
+                }
+            }
+            
+            // For IPv6 or other formats: show first part and mask the rest
+            if (ipAddress.Contains(':'))
+            {
+                var parts = ipAddress.Split(':');
+                if (parts.Length > 2)
+                {
+                    return $"{parts[0]}:{parts[1]}:xxxx::xxxx";
+                }
+            }
+            
+            // Fallback: show first 4 characters
+            return ipAddress.Length > 4 ? ipAddress.Substring(0, 4) + "xxx" : "xxx";
+        }
+        catch
+        {
+            return "xxx.xxx.xxx.xxx";
+        }
+    }
+
+    public async Task<int> GetQuizParticipantsTotalCountAsync()
+    {
+        try
+        {
+            // Get the sorted attempts list and return its count
+            var sortedAttempts = await GetSortedQuizAttemptsAsync();
+            return sortedAttempts.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error getting quiz participants total count");
+            return 0;
+        }
+    }
+
+    public async Task<int> GetGameParticipantsTotalCountAsync()
+    {
+        try
+        {
+            var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
+            var gameParticipants = new List<UnifiedParticipant>();
+            
+            // Get game participants from leaderboard
+            var gameLeaderboard = await _redis.SortedSetRangeWithScoresAsync("game:leaderboard:alltime", 0, -1, true);
+            
+            foreach (var entry in gameLeaderboard)
+            {
+                try
+                {
+                    var playerData = entry.Member.Split(':');
+                    if (playerData.Length >= 2)
+                    {
+                        var scoreId = playerData[1];
+                        var gameScore = await _redis.GetAsync<GameScore>($"game:score:{scoreId}");
+                        if (gameScore != null && gameScore.AchievedAt >= thirtyDaysAgo)
+                        {
+                            gameParticipants.Add(new UnifiedParticipant("", "", 0, "", gameScore.AchievedAt));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error processing game entry {Entry} for count", entry.Member);
+                }
+            }
+            
+            return gameParticipants.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error getting game participants total count");
+            return 0;
+        }
+    }
+
+    public async Task<int> GetTipsContributorsTotalCountAsync()
+    {
+        try
+        {
+            var tipsContributors = new List<UnifiedParticipant>();
+            
+            // Get all tips from Redis
+            var tipKeys = await _redis.GetKeysAsync("tips:*");
+            var tipDataKeys = tipKeys.Where(k => !k.Contains("category:") && !k.Contains("likes:") && !k.Contains("categories")).ToList();
+            
+            foreach (var key in tipDataKeys)
+            {
+                try
+                {
+                    if (key.Contains("seeded") || key.Contains("categories") || key.Contains("likes"))
+                    {
+                        continue;
+                    }
+                    
+                    var tip = await _redis.GetAsync<Tip>(key);
+                    if (tip != null && !tip.IsAiGenerated && !string.IsNullOrEmpty(tip.CreatedBy))
+                    {
+                        tipsContributors.Add(new UnifiedParticipant(tip.CreatedBy, "", 0, "", tip.CreatedAt));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error processing tip {Key} for count", key);
+                }
+            }
+            
+            // Group by creator to get unique count
+            var uniqueContributors = tipsContributors
+                .GroupBy(c => c.Name)
+                .Count();
+            
+            return uniqueContributors;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error getting tips contributors total count");
+            return 0;
         }
     }
 }

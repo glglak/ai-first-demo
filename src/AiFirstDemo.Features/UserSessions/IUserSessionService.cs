@@ -14,4 +14,5 @@ public interface IUserSessionService
     Task<bool> CanTakeQuizAsync(string ipAddress);
     Task<string> HashIpAddressAsync(string ipAddress);
     Task<int> CleanupCorruptedQuizCountersAsync();
+    Task<string?> GetDisplayIpAsync(string sessionId);
 }

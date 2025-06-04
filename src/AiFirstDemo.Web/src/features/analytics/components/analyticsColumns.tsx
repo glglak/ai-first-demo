@@ -1,73 +1,62 @@
 import { ColumnDef } from '@tanstack/react-table'
+import { UnifiedParticipant } from '../../../shared/types'
 
-// Quiz Participant Interface
-export interface QuizParticipant {
-  name: string
-  ipHash: string
-  score: number
-  lastActive: string
-}
-
-// Game Participant Interface  
-export interface GameParticipant {
-  name: string
-  ipHash: string
-  score: number
-  lastActive: string
-}
-
-// Tips Contributor Interface
-export interface TipsContributor {
-  name: string
-  activity: string
-  score: number
-  lastActive: string
-}
-
-// Quiz Analytics Columns
-export const quizColumns: ColumnDef<QuizParticipant>[] = [
+// Quiz Analytics Columns - with pagination offset for correct ranking
+export const createQuizColumns = (offset: number = 0): ColumnDef<UnifiedParticipant>[] => [
   {
     id: 'rank',
     header: 'Rank',
-    cell: ({ row }) => (
-      <div className="flex items-center">
-        <span className="font-bold text-purple-600">#{row.index + 1}</span>
-      </div>
-    ),
+    cell: ({ row }) => {
+      const globalRank = row.index + 1 + offset;
+      return (
+        <div className="flex items-center">
+          {globalRank === 1 && <span className="text-yellow-500 mr-1">🏆</span>}
+          {globalRank === 2 && <span className="text-gray-400 mr-1">🥈</span>}
+          {globalRank === 3 && <span className="text-amber-600 mr-1">🥉</span>}
+          <span className="font-bold text-purple-600">#{globalRank}</span>
+        </div>
+      );
+    },
     enableSorting: false,
   },
   {
     accessorKey: 'name',
-    header: 'Participant Name',
+    header: 'AI Genius',
     cell: ({ row }) => (
-      <div>
-        <div className="font-medium text-gray-900">{row.getValue('name')}</div>
-        <div className="text-xs text-gray-500">
-          ID: {(row.original.ipHash || '').substring(0, 8)}...
-        </div>
-      </div>
+      <div className="font-medium text-gray-900">{row.getValue('name')}</div>
     ),
+    sortingFn: 'alphanumeric',
   },
   {
     accessorKey: 'score',
-    header: 'Score',
+    header: 'Intelligence Score',
     cell: ({ row }) => {
       const score = row.getValue('score') as number;
       const percentage = (score / 10) * 100; // Assuming 10 total questions
       return (
         <div className="text-right">
           <div className="text-lg font-bold text-purple-600">
-            {percentage.toFixed(0)}%
+            {score}/10 ({percentage.toFixed(0)}%)
           </div>
-          <div className="text-xs text-gray-500">quiz score</div>
+          <div className="text-xs text-gray-500">brain power</div>
         </div>
       );
     },
     sortingFn: 'basic',
   },
   {
+    accessorKey: 'activity',
+    header: 'Achievement',
+    cell: ({ row }) => (
+      <div className="text-sm text-gray-600">
+        {row.getValue('activity')}
+      </div>
+    ),
+    sortingFn: 'alphanumeric',
+  },
+  {
     accessorKey: 'lastActive',
-    header: 'Last Active',
+    header: 'Last Seen',
     cell: ({ row }) => (
       <div className="text-sm text-gray-600">
         {new Date(row.getValue('lastActive')).toLocaleDateString('en-US', {
@@ -86,49 +75,58 @@ export const quizColumns: ColumnDef<QuizParticipant>[] = [
   },
 ]
 
-// Game Analytics Columns
-export const gameColumns: ColumnDef<GameParticipant>[] = [
+// Game Analytics Columns - with pagination offset for correct ranking
+export const createGameColumns = (offset: number = 0): ColumnDef<UnifiedParticipant>[] => [
   {
     id: 'rank',
     header: 'Rank',
-    cell: ({ row }) => (
-      <div className="flex items-center">
-        {row.index === 0 && <span className="text-yellow-500 mr-1">🏆</span>}
-        {row.index === 1 && <span className="text-gray-400 mr-1">🥈</span>}
-        {row.index === 2 && <span className="text-amber-600 mr-1">🥉</span>}
-        <span className="font-bold text-blue-600">#{row.index + 1}</span>
-      </div>
-    ),
+    cell: ({ row }) => {
+      const globalRank = row.index + 1 + offset;
+      return (
+        <div className="flex items-center">
+          {globalRank === 1 && <span className="text-yellow-500 mr-1">🏆</span>}
+          {globalRank === 2 && <span className="text-gray-400 mr-1">🥈</span>}
+          {globalRank === 3 && <span className="text-amber-600 mr-1">🥉</span>}
+          <span className="font-bold text-blue-600">#{globalRank}</span>
+        </div>
+      );
+    },
     enableSorting: false,
   },
   {
     accessorKey: 'name',
-    header: 'Player Name',
+    header: 'AI Warrior',
     cell: ({ row }) => (
-      <div>
-        <div className="font-medium text-gray-900">{row.getValue('name')}</div>
-        <div className="text-xs text-gray-500">
-          ID: {(row.original.ipHash || '').substring(0, 8)}...
-        </div>
-      </div>
+      <div className="font-medium text-gray-900">{row.getValue('name')}</div>
     ),
+    sortingFn: 'alphanumeric',
   },
   {
     accessorKey: 'score',
-    header: 'High Score',
+    header: 'Power Level',
     cell: ({ row }) => (
       <div className="text-right">
         <div className="text-lg font-bold text-blue-600">
           {(row.getValue('score') as number)?.toLocaleString() || '0'}
         </div>
-        <div className="text-xs text-gray-500">points</div>
+        <div className="text-xs text-gray-500">combat points</div>
       </div>
     ),
     sortingFn: 'basic',
   },
   {
+    accessorKey: 'activity',
+    header: 'Battle Record',
+    cell: ({ row }) => (
+      <div className="text-sm text-gray-600">
+        {row.getValue('activity')}
+      </div>
+    ),
+    sortingFn: 'alphanumeric',
+  },
+  {
     accessorKey: 'lastActive',
-    header: 'Last Played',
+    header: 'Last Battle',
     cell: ({ row }) => (
       <div className="text-sm text-gray-600">
         {new Date(row.getValue('lastActive')).toLocaleDateString('en-US', {
@@ -147,46 +145,62 @@ export const gameColumns: ColumnDef<GameParticipant>[] = [
   },
 ]
 
-// Tips Analytics Columns
-export const tipsColumns: ColumnDef<TipsContributor>[] = [
+// Tips Analytics Columns - with pagination offset for correct ranking
+export const createTipsColumns = (offset: number = 0): ColumnDef<UnifiedParticipant>[] => [
   {
     id: 'rank',
     header: 'Rank',
-    cell: ({ row }) => (
-      <div className="flex items-center">
-        <span className="font-bold text-green-600">#{row.index + 1}</span>
-      </div>
-    ),
+    cell: ({ row }) => {
+      const globalRank = row.index + 1 + offset;
+      return (
+        <div className="flex items-center">
+          {globalRank === 1 && <span className="text-yellow-500 mr-1">🏆</span>}
+          {globalRank === 2 && <span className="text-gray-400 mr-1">🥈</span>}
+          {globalRank === 3 && <span className="text-amber-600 mr-1">🥉</span>}
+          <span className="font-bold text-green-600">#{globalRank}</span>
+        </div>
+      );
+    },
     enableSorting: false,
   },
   {
     accessorKey: 'name',
-    header: 'Contributor',
+    header: 'AI Mentor',
     cell: ({ row }) => (
       <div>
         <div className="font-medium text-gray-900">{row.getValue('name')}</div>
-        <div className="text-xs text-gray-500 truncate max-w-40">
-          {row.original.activity}
+        <div className="text-xs text-gray-500">
+          {row.original.ipHash || 'Unknown Source'}
         </div>
       </div>
     ),
   },
   {
+    accessorKey: 'activity',
+    header: 'Wisdom Shared',
+    cell: ({ row }) => (
+      <div className="text-sm text-gray-600 truncate max-w-40">
+        {row.getValue('activity')}
+      </div>
+    ),
+    sortingFn: 'alphanumeric',
+  },
+  {
     accessorKey: 'score',
-    header: 'Likes',
+    header: 'Respect Earned',
     cell: ({ row }) => (
       <div className="text-right">
         <div className="text-lg font-bold text-green-600">
-          ❤️ {row.getValue('score')}
+          {row.getValue('score')} ❤️
         </div>
-        <div className="text-xs text-gray-500">likes</div>
+        <div className="text-xs text-gray-500">community love</div>
       </div>
     ),
     sortingFn: 'basic',
   },
   {
     accessorKey: 'lastActive',
-    header: 'Last Active',
+    header: 'Last Wisdom',
     cell: ({ row }) => (
       <div className="text-sm text-gray-600">
         {new Date(row.getValue('lastActive')).toLocaleDateString('en-US', {
@@ -203,4 +217,9 @@ export const tipsColumns: ColumnDef<TipsContributor>[] = [
       return dateA - dateB
     },
   },
-] 
+]
+
+// Legacy exports for backward compatibility
+export const quizColumns = createQuizColumns(0);
+export const gameColumns = createGameColumns(0);
+export const tipsColumns = createTipsColumns(0); 

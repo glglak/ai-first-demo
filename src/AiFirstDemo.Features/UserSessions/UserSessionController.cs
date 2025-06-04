@@ -148,11 +148,7 @@ public class SessionsController : ControllerBase
         {
             var startTime = DateTime.UtcNow;
             
-            // Test basic Redis connectivity
-            var testKey = $"health:test:{Guid.NewGuid()}";
-            var testValue = "test-value";
-            
-            // Try to set and get a test value
+            // Try to perform a simple Redis operation to test connectivity
             var canTakeQuiz = await _sessionService.CanTakeQuizAsync("127.0.0.1");
             var elapsed = DateTime.UtcNow - startTime;
             

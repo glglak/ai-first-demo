@@ -265,48 +265,48 @@ const TipsAndTricks: React.FC = () => {
           ))}
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTips.map(tip => (
-            <div key={tip.id} className="card hover:shadow-xl transition-all">
-              <div className="flex justify-between items-start mb-3">
-                <h3 className="text-lg font-semibold text-gray-900">{tip.title}</h3>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${DIFFICULTY_COLORS[tip.difficulty]}`}>
-                  {tip.difficulty}
-                </span>
-              </div>
-              
-              <p className="text-gray-700 text-sm mb-4 leading-relaxed">
-                {tip.content}
-              </p>
-              
-              <div className="flex flex-wrap gap-1 mb-4">
-                {tip.tags.map(tag => (
-                  <span key={tag} className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500">
-                  by {tip.createdBy}
-                </span>
-                <button
-                  onClick={() => handleLikeTip(tip.id)}
-                  disabled={likedTips.has(tip.id) || likingTips.has(tip.id)}
-                  className={`flex items-center space-x-1 text-sm ${
-                    likedTips.has(tip.id) 
-                      ? 'text-red-500 cursor-not-allowed' 
-                      : 'text-gray-500 hover:text-red-500 cursor-pointer'
-                  } ${likingTips.has(tip.id) ? 'opacity-50' : ''}`}
-                >
-                  <span>{likedTips.has(tip.id) ? '❤️' : '🤍'}</span>
-                  <span>{tip.likes}</span>
-                </button>
-              </div>
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {filteredTips.map(tip => (
+          <div key={tip.id} className="card hover:shadow-xl transition-all">
+            <div className="flex justify-between items-start mb-3">
+              <h3 className="text-lg font-semibold text-gray-900">{tip.title}</h3>
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${DIFFICULTY_COLORS[tip.difficulty]}`}>
+                {tip.difficulty}
+              </span>
             </div>
-          ))}
-        </div>
+            
+            <p className="text-gray-700 text-sm mb-4 leading-relaxed">
+              {tip.content}
+            </p>
+            
+            <div className="flex flex-wrap gap-1 mb-4">
+              {tip.tags.map(tag => (
+                <span key={tag} className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-gray-500">
+                by {tip.createdBy}
+              </span>
+              <button
+                onClick={() => handleLikeTip(tip.id)}
+                  disabled={likedTips.has(tip.id) || likingTips.has(tip.id)}
+                className={`flex items-center space-x-1 text-sm ${
+                    likedTips.has(tip.id) 
+                    ? 'text-red-500 cursor-not-allowed' 
+                    : 'text-gray-500 hover:text-red-500 cursor-pointer'
+                  } ${likingTips.has(tip.id) ? 'opacity-50' : ''}`}
+              >
+                  <span>{likedTips.has(tip.id) ? '❤️' : '🤍'}</span>
+                <span>{tip.likes}</span>
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
       )}
 
       {!isLoading && filteredTips.length === 0 && (

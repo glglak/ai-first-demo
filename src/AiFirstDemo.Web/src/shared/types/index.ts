@@ -254,3 +254,12 @@ export interface AnalyticsUpdate {
   data: any
   timestamp: string
 }
+
+export interface PaginatedResponse<T> {
+  data: T[]
+  total: number
+  page: number
+  pageSize: number
+  hasNext: boolean
+  hasPrevious: boolean
+}

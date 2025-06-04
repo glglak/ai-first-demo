@@ -11,6 +11,17 @@ import {
   flexRender,
 } from '@tanstack/react-table'
 
+interface PaginationInfo {
+  pageIndex: number
+  pageSize: number
+  pageCount: number
+  total: number
+  hasNext: boolean
+  hasPrevious: boolean
+  onPageChange: (pageIndex: number) => void
+  onPageSizeChange: (pageSize: number) => void
+}
+
 interface DataTableProps<T> {
   data: T[]
   columns: ColumnDef<T>[]
@@ -23,6 +34,8 @@ interface DataTableProps<T> {
   emptyStateMessage?: string
   emptyStateSubMessage?: string
   colorTheme?: 'purple' | 'blue' | 'green'
+  pagination?: PaginationInfo // Optional external pagination
+  loadingQuote?: string // Optional quote to show during loading
 }
 
 export function DataTable<T>({
@@ -36,7 +49,9 @@ export function DataTable<T>({
   emptyStateIcon = "📊",
   emptyStateMessage = "No data available",
   emptyStateSubMessage = "Data will appear here when available",
-  colorTheme = 'blue'
+  colorTheme = 'blue',
+  pagination,
+  loadingQuote
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -49,19 +64,31 @@ export function DataTable<T>({
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    ...(pagination ? {} : { getPaginationRowModel: getPaginationRowModel() }), // Only use internal pagination if no external pagination
+    ...(pagination ? {} : { getSortedRowModel: getSortedRowModel() }), // Only use client-side sorting if no external pagination
     getFilteredRowModel: getFilteredRowModel(),
     state: {
       sorting,
       columnFilters,
       globalFilter,
+      ...(pagination ? { 
+        pagination: { 
+          pageIndex: pagination.pageIndex, 
+          pageSize: pagination.pageSize 
+        } 
+      } : {}),
     },
-    initialState: {
-      pagination: {
-        pageSize: 10,
+    ...(pagination ? {
+      manualPagination: true,
+      manualSorting: true, // Disable client-side sorting for server-side pagination
+      pageCount: pagination.pageCount,
+    } : {
+      initialState: {
+        pagination: {
+          pageSize: 5,
+        },
       },
-    },
+    }),
   })
 
   const colorClasses = {
@@ -93,6 +120,11 @@ export function DataTable<T>({
 
   const colors = colorClasses[colorTheme]
 
+  // Determine if pagination controls should be shown
+  const showPagination = pagination ? 
+    (pagination.total > pagination.pageSize) : 
+    (table.getPageCount() > 1)
+
   if (isLoading) {
     return (
       <div className="card">
@@ -111,6 +143,14 @@ export function DataTable<T>({
               </div>
             ))}
           </div>
+          {loadingQuote && (
+            <div className="mt-6 text-center">
+              <div className="inline-block bg-gray-50 rounded-lg px-4 py-3 border-l-4 border-gray-400">
+                <p className="text-gray-700 italic">"{loadingQuote}"</p>
+                <p className="text-xs text-gray-500 mt-1">- The Family</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -147,12 +187,12 @@ export function DataTable<T>({
           )}
         </div>
         <div className="text-sm text-gray-500">
-          {data.length} {data.length === 1 ? 'record' : 'records'}
+          {pagination ? `${pagination.total} total` : `${data.length} ${data.length === 1 ? 'record' : 'records'}`}
         </div>
       </div>
 
-      {/* Search */}
-      {data.length > 0 && (
+      {/* Search - disabled for external pagination since it should be handled server-side */}
+      {data.length > 0 && !pagination && (
         <div className="mb-4">
           <input
             placeholder={searchPlaceholder}
@@ -218,55 +258,139 @@ export function DataTable<T>({
           </div>
 
           {/* Pagination */}
-          {table.getPageCount() > 1 && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
+          {showPagination && (
+            <div className="flex flex-col sm:flex-row items-center justify-between mt-4 pt-4 border-t border-gray-200 gap-4">
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => table.setPageIndex(0)}
-                  disabled={!table.getCanPreviousPage()}
-                  className={`px-3 py-1 text-sm border rounded ${!table.getCanPreviousPage() 
-                    ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
-                    : colors.buttonOutline}`}
-                >
-                  {'<<'}
-                </button>
-                <button
-                  onClick={() => table.previousPage()}
-                  disabled={!table.getCanPreviousPage()}
-                  className={`px-3 py-1 text-sm border rounded ${!table.getCanPreviousPage() 
-                    ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
-                    : colors.buttonOutline}`}
-                >
-                  {'<'}
-                </button>
-                <button
-                  onClick={() => table.nextPage()}
-                  disabled={!table.getCanNextPage()}
-                  className={`px-3 py-1 text-sm border rounded ${!table.getCanNextPage() 
-                    ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
-                    : colors.buttonOutline}`}
-                >
-                  {'>'}
-                </button>
-                <button
-                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-                  disabled={!table.getCanNextPage()}
-                  className={`px-3 py-1 text-sm border rounded ${!table.getCanNextPage() 
-                    ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
-                    : colors.buttonOutline}`}
-                >
-                  {'>>'}
-                </button>
+                {pagination ? (
+                  // External pagination controls
+                  <>
+                    <button
+                      onClick={() => pagination.onPageChange(0)}
+                      disabled={!pagination.hasPrevious}
+                      className={`px-3 py-1 text-sm border rounded ${!pagination.hasPrevious 
+                        ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
+                        : colors.buttonOutline}`}
+                    >
+                      {'<<'}
+                    </button>
+                    <button
+                      onClick={() => pagination.onPageChange(pagination.pageIndex - 1)}
+                      disabled={!pagination.hasPrevious}
+                      className={`px-3 py-1 text-sm border rounded ${!pagination.hasPrevious 
+                        ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
+                        : colors.buttonOutline}`}
+                    >
+                      {'<'}
+                    </button>
+                    <button
+                      onClick={() => pagination.onPageChange(pagination.pageIndex + 1)}
+                      disabled={!pagination.hasNext}
+                      className={`px-3 py-1 text-sm border rounded ${!pagination.hasNext 
+                        ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
+                        : colors.buttonOutline}`}
+                    >
+                      {'>'}
+                    </button>
+                    <button
+                      onClick={() => pagination.onPageChange(pagination.pageCount - 1)}
+                      disabled={!pagination.hasNext}
+                      className={`px-3 py-1 text-sm border rounded ${!pagination.hasNext 
+                        ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
+                        : colors.buttonOutline}`}
+                    >
+                      {'>>'}
+                    </button>
+                  </>
+                ) : (
+                  // Internal pagination controls
+                  <>
+                    <button
+                      onClick={() => table.setPageIndex(0)}
+                      disabled={!table.getCanPreviousPage()}
+                      className={`px-3 py-1 text-sm border rounded ${!table.getCanPreviousPage() 
+                        ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
+                        : colors.buttonOutline}`}
+                    >
+                      {'<<'}
+                    </button>
+                    <button
+                      onClick={() => table.previousPage()}
+                      disabled={!table.getCanPreviousPage()}
+                      className={`px-3 py-1 text-sm border rounded ${!table.getCanPreviousPage() 
+                        ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
+                        : colors.buttonOutline}`}
+                    >
+                      {'<'}
+                    </button>
+                    <button
+                      onClick={() => table.nextPage()}
+                      disabled={!table.getCanNextPage()}
+                      className={`px-3 py-1 text-sm border rounded ${!table.getCanNextPage() 
+                        ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
+                        : colors.buttonOutline}`}
+                    >
+                      {'>'}
+                    </button>
+                    <button
+                      onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                      disabled={!table.getCanNextPage()}
+                      className={`px-3 py-1 text-sm border rounded ${!table.getCanNextPage() 
+                        ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
+                        : colors.buttonOutline}`}
+                    >
+                      {'>>'}
+                    </button>
+                  </>
+                )}
               </div>
               
-              <div className="flex items-center space-x-2 text-sm text-gray-600">
-                <span>
-                  Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
-                </span>
-                <span>|</span>
-                <span>
-                  {table.getFilteredRowModel().rows.length} total records
-                </span>
+              <div className="flex items-center space-x-4 text-sm text-gray-600">
+                <div className="flex items-center space-x-2">
+                  <span>Show:</span>
+                  <select
+                    value={pagination ? pagination.pageSize : table.getState().pagination.pageSize}
+                    onChange={(e) => {
+                      const newPageSize = Number(e.target.value)
+                      if (pagination) {
+                        pagination.onPageSizeChange(newPageSize)
+                      } else {
+                        table.setPageSize(newPageSize)
+                      }
+                    }}
+                    className="border border-gray-300 rounded px-2 py-1 text-sm"
+                  >
+                    {[5, 10, 20, 50].map((pageSize) => (
+                      <option key={pageSize} value={pageSize}>
+                        {pageSize}
+                      </option>
+                    ))}
+                  </select>
+                  <span>per page</span>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  {pagination ? (
+                    <>
+                      <span>
+                        Page {pagination.pageIndex + 1} of {pagination.pageCount}
+                      </span>
+                      <span>|</span>
+                      <span>
+                        {pagination.total} total records
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+                      </span>
+                      <span>|</span>
+                      <span>
+                        {table.getFilteredRowModel().rows.length} total records
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}

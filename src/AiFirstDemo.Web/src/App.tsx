@@ -134,16 +134,16 @@ const JOB_TITLES = [
   'Other'
 ]
 
-// Navigation Component
+// Navigation Component with AI Pacino theme
 const Navigation = () => {
   const location = useLocation()
   const navigate = useNavigate()
   
   const tabs = [
-    { path: '/', label: '🧠 AI Quiz', color: 'from-purple-500 to-blue-500' },
-    { path: '/game', label: '🎮 Spaceship Game', color: 'from-orange-500 to-red-500' },
-    { path: '/tips', label: '💡 Tips & Tricks', color: 'from-green-500 to-teal-500' },
-    { path: '/analytics', label: '📊 Analytics', color: 'from-indigo-500 to-purple-500' }
+    { path: '/', label: '🧠 Intelligence Test', color: 'from-purple-500 to-blue-500' },
+    { path: '/game', label: '🚀 Territory Wars', color: 'from-orange-500 to-red-500' },
+    { path: '/tips', label: '💡 Family Secrets', color: 'from-green-500 to-teal-500' },
+    { path: '/analytics', label: '📊 Family Business', color: 'from-indigo-500 to-purple-500' }
   ]
 
   return (
@@ -187,17 +187,17 @@ const CreativeBackground = () => (
   </div>
 )
 
-// Main Layout Component
+// Main Layout Component with AI Pacino theme
 const Layout = ({ children }: { children: React.ReactNode }) => (
   <div className="min-h-screen relative">
     <CreativeBackground />
     <div className="relative z-10 container mx-auto px-4 py-6 max-w-6xl">
       <div className="text-center mb-8">
         <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">
-          🚀 AI First Demo
+          🎬 AI Pacino's Empire
         </h1>
         <p className="text-gray-600 text-lg">
-          Showcase of AI-First Development with Cursor
+          "Say hello to my little algorithm!" - Where AI meets the Family Business
         </p>
       </div>
       <Navigation />

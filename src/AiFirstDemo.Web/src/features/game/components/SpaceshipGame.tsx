@@ -1,8 +1,9 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react'
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSession } from '../../../shared/contexts/SessionContext'
-import { gameApi } from '../../../shared/services/api'
+import { gameApi, sessionApi } from '../../../shared/services/api'
 import { SubmitScoreRequest } from '../../../shared/types'
+import { getRandomGodfatherQuote } from '../../../shared/utils'
 
 interface GameState {
   player: {
@@ -43,8 +44,12 @@ const SpaceshipGame: React.FC = () => {
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [playerName, setPlayerName] = useState('')
   const [showNameInput, setShowNameInput] = useState(false)
+  const [gameSessionId, setGameSessionId] = useState<string | null>(null)
   const { session } = useSession()
   const queryClient = useQueryClient()
+
+  // Memoize a random Godfather quote for the leaderboard loading
+  const leaderboardQuote = useMemo(() => getRandomGodfatherQuote(), [])
 
   // Game constants
   const CANVAS_WIDTH = 800
@@ -57,11 +62,40 @@ const SpaceshipGame: React.FC = () => {
   const PLAYER_MAX_SPEED = 8
   const FRICTION = 0.98
 
+  // Session creation for game-only players
+  const createGameSessionMutation = useMutation({
+    mutationFn: (name: string) => sessionApi.create({ name: `${name} (Game Player)` }),
+    onSuccess: (newSession) => {
+      console.log('Created game session:', newSession.sessionId)
+      // Add a small delay to ensure session is saved in Redis
+      setTimeout(() => {
+        setGameSessionId(newSession.sessionId)
+        console.log('Game session ID set:', newSession.sessionId)
+      }, 100)
+    },
+    onError: (error) => {
+      console.error('Failed to create game session:', error)
+      // Fallback to game-only-session if session creation fails
+      setGameSessionId('game-only-session')
+    }
+  })
+
+  // Create game session immediately if no quiz session exists
+  useEffect(() => {
+    if (!session?.sessionId && !gameSessionId && !createGameSessionMutation.isPending) {
+      // Create a default session for anonymous game players
+      createGameSessionMutation.mutate('Anonymous Player')
+    }
+  }, [session, gameSessionId, createGameSessionMutation])
+
   // API queries
-  const { data: leaderboard } = useQuery({
-    queryKey: ['leaderboard', session?.sessionId],
-    queryFn: () => gameApi.getLeaderboard(session?.sessionId),
-    enabled: showLeaderboard
+  const currentSessionId = session?.sessionId || gameSessionId
+  const { data: leaderboard, isLoading: leaderboardLoading, error: leaderboardError } = useQuery({
+    queryKey: ['leaderboard', currentSessionId],
+    queryFn: () => gameApi.getLeaderboard(currentSessionId || undefined),
+    enabled: showLeaderboard,
+    refetchOnWindowFocus: false,
+    retry: 2
   })
 
   const submitScoreMutation = useMutation({
@@ -70,6 +104,10 @@ const SpaceshipGame: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['leaderboard'] })
       setShowNameInput(false)
       setShowLeaderboard(true)
+    },
+    onError: (error: any) => {
+      console.error('Score submission failed:', error)
+      // Keep the name input open with an error message instead of ugly popup
     }
   })
 
@@ -447,9 +485,13 @@ const SpaceshipGame: React.FC = () => {
     }
   }, [gameState])
 
-  // Submit score
+  // Submit score - simplified since session is created upfront
   const handleSubmitScore = () => {
     if (!gameState || !playerName.trim()) return
+
+    const sessionId = session?.sessionId || gameSessionId || 'game-only-session'
+    
+    console.log('Submitting score with session ID:', sessionId)
 
     const gameDurationMs = Date.now() - gameState.gameStartTime
     const gameDurationSeconds = Math.floor(gameDurationMs / 1000)
@@ -459,7 +501,7 @@ const SpaceshipGame: React.FC = () => {
     const gameDurationTimeSpan = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
     
     submitScoreMutation.mutate({
-      sessionId: session?.sessionId || 'game-only-session', // Use quiz session if available, otherwise use a default
+      sessionId: sessionId,
       playerName: playerName.trim(),
       score: gameState.score,
       gameDuration: gameDurationTimeSpan,
@@ -471,10 +513,23 @@ const SpaceshipGame: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-3xl font-bold text-gray-900 mb-2">🚀 Spaceship Game</h2>
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">🚀 Territory Wars</h2>
         <p className="text-gray-700">
-          Use WASD or Arrow Keys to move, Space to shoot, P to pause
+          "The world is yours, but space is harder" - Use WASD or Arrow Keys to move, Space to shoot, P to pause
         </p>
+        
+        {/* Session status indicator */}
+        {!session?.sessionId && (
+          <div className="mt-2 text-sm">
+            {createGameSessionMutation.isPending ? (
+              <span className="text-blue-600">🔄 Preparing your territory...</span>
+            ) : gameSessionId ? (
+              <span className="text-green-600">✅ Territory claimed - Ready for battle!</span>
+            ) : (
+              <span className="text-yellow-600">⚠️ Using anonymous mode</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex justify-center space-x-4 mb-4">
@@ -554,65 +609,84 @@ const SpaceshipGame: React.FC = () => {
       )}
 
       {/* Leaderboard */}
-      {showLeaderboard && leaderboard && (
+      {showLeaderboard && (
         <div className="card">
           <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">🏆 Leaderboard</h3>
           
-          <div className="grid md:grid-cols-3 gap-6">
-            {/* Daily Leaderboard */}
-            <div>
-              <h4 className="text-lg font-semibold text-purple-600 mb-3">Today</h4>
-              <div className="space-y-2">
-                {leaderboard.dailyLeaderboard.slice(0, 5).map((entry, index) => (
-                  <div key={index} className="flex justify-between items-center bg-gray-50 rounded-lg p-2">
-                    <span className="text-gray-900">
-                      #{entry.rank} {entry.playerName}
-                    </span>
-                    <span className="text-purple-600 font-bold">{entry.score}</span>
+          {leaderboardLoading && (
+            <div className="text-center py-8">
+              <div className="animate-spin text-4xl mb-4">⟳</div>
+              <p className="text-gray-600 italic">"{leaderboardQuote}"</p>
+              <p className="text-sm text-gray-500 mt-2">Loading the family records...</p>
+            </div>
+          )}
+          
+          {leaderboardError && (
+            <div className="text-center py-8">
+              <p className="text-red-600 mb-2">❌ Failed to load leaderboard</p>
+              <p className="text-sm text-gray-500">The family records are temporarily unavailable</p>
+            </div>
+          )}
+          
+          {leaderboard && !leaderboardLoading && (
+            <>
+              <div className="grid md:grid-cols-3 gap-6">
+                {/* Daily Leaderboard */}
+                <div>
+                  <h4 className="text-lg font-semibold text-purple-600 mb-3">Today</h4>
+                  <div className="space-y-2">
+                    {leaderboard.dailyLeaderboard.slice(0, 5).map((entry, index) => (
+                      <div key={index} className="flex justify-between items-center bg-gray-50 rounded-lg p-2">
+                        <span className="text-gray-900">
+                          #{entry.rank} {entry.playerName}
+                        </span>
+                        <span className="text-purple-600 font-bold">{entry.score}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
 
-            {/* Weekly Leaderboard */}
-            <div>
-              <h4 className="text-lg font-semibold text-blue-600 mb-3">This Week</h4>
-              <div className="space-y-2">
-                {leaderboard.weeklyLeaderboard.slice(0, 5).map((entry, index) => (
-                  <div key={index} className="flex justify-between items-center bg-gray-50 rounded-lg p-2">
-                    <span className="text-gray-900">
-                      #{entry.rank} {entry.playerName}
-                    </span>
-                    <span className="text-blue-600 font-bold">{entry.score}</span>
+                {/* Weekly Leaderboard */}
+                <div>
+                  <h4 className="text-lg font-semibold text-blue-600 mb-3">This Week</h4>
+                  <div className="space-y-2">
+                    {leaderboard.weeklyLeaderboard.slice(0, 5).map((entry, index) => (
+                      <div key={index} className="flex justify-between items-center bg-gray-50 rounded-lg p-2">
+                        <span className="text-gray-900">
+                          #{entry.rank} {entry.playerName}
+                        </span>
+                        <span className="text-blue-600 font-bold">{entry.score}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
 
-            {/* All Time Leaderboard */}
-            <div>
-              <h4 className="text-lg font-semibold text-yellow-600 mb-3">All Time</h4>
-              <div className="space-y-2">
-                {leaderboard.allTimeLeaderboard.slice(0, 5).map((entry, index) => (
-                  <div key={index} className="flex justify-between items-center bg-gray-50 rounded-lg p-2">
-                    <span className="text-gray-900">
-                      #{entry.rank} {entry.playerName}
-                    </span>
-                    <span className="text-yellow-600 font-bold">{entry.score}</span>
+                {/* All Time Leaderboard */}
+                <div>
+                  <h4 className="text-lg font-semibold text-yellow-600 mb-3">All Time</h4>
+                  <div className="space-y-2">
+                    {leaderboard.allTimeLeaderboard.slice(0, 5).map((entry, index) => (
+                      <div key={index} className="flex justify-between items-center bg-gray-50 rounded-lg p-2">
+                        <span className="text-gray-900">
+                          #{entry.rank} {entry.playerName}
+                        </span>
+                        <span className="text-yellow-600 font-bold">{entry.score}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
               </div>
-            </div>
-          </div>
 
-          {leaderboard.playerBest && (
-            <div className="mt-6 p-4 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg">
-              <h4 className="text-white font-semibold mb-2">Your Best Score</h4>
-              <div className="text-white">
-                <span className="font-bold">{leaderboard.playerBest.score}</span> points
-                <span className="ml-4 text-purple-200">Level {leaderboard.playerBest.level}</span>
-              </div>
-            </div>
+              {leaderboard.playerBest && (
+                <div className="mt-6 p-4 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg">
+                  <h4 className="text-white font-semibold mb-2">Your Best Score</h4>
+                  <div className="text-white">
+                    <span className="font-bold">{leaderboard.playerBest.score}</span> points
+                    <span className="ml-4 text-purple-200">Level {leaderboard.playerBest.level}</span>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

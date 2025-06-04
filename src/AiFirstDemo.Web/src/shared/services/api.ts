@@ -16,12 +16,13 @@ import {
   UserActivity,
   HourlyActivity,
   UnifiedLeaderboardResponse,
-  UnifiedParticipant
+  UnifiedParticipant,
+  PaginatedResponse
 } from '../types'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 30000,
 })
 
 // Request interceptor for logging
@@ -137,15 +138,15 @@ export const analyticsApi = {
   getUnifiedLeaderboard: (): Promise<UnifiedLeaderboardResponse> =>
     api.get('/analytics/unified-leaderboard').then((res) => res.data),
   
-  // Separate leaderboard endpoints for better performance
-  getQuizParticipants: (): Promise<UnifiedParticipant[]> =>
-    api.get('/analytics/leaderboard/quiz').then((res) => res.data),
+  // Separate leaderboard endpoints with pagination support
+  getQuizParticipants: (limit: number = 10, offset: number = 0): Promise<PaginatedResponse<UnifiedParticipant>> =>
+    api.get(`/analytics/leaderboard/quiz?limit=${limit}&offset=${offset}`).then((res) => res.data),
   
-  getGameParticipants: (): Promise<UnifiedParticipant[]> =>
-    api.get('/analytics/leaderboard/game').then((res) => res.data),
+  getGameParticipants: (limit: number = 10, offset: number = 0): Promise<PaginatedResponse<UnifiedParticipant>> =>
+    api.get(`/analytics/leaderboard/game?limit=${limit}&offset=${offset}`).then((res) => res.data),
   
-  getTipsContributors: (): Promise<UnifiedParticipant[]> =>
-    api.get('/analytics/leaderboard/tips').then((res) => res.data),
+  getTipsContributors: (limit: number = 10, offset: number = 0): Promise<PaginatedResponse<UnifiedParticipant>> =>
+    api.get(`/analytics/leaderboard/tips?limit=${limit}&offset=${offset}`).then((res) => res.data),
 }
 
 export default api

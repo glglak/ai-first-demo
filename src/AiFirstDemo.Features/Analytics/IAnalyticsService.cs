@@ -16,4 +16,9 @@ public interface IAnalyticsService
     Task<List<UnifiedParticipant>> GetQuizParticipantsAsync(int limit = 10, int offset = 0);
     Task<List<UnifiedParticipant>> GetGameParticipantsAsync(int limit = 10, int offset = 0);
     Task<List<UnifiedParticipant>> GetTipsContributorsAsync(int limit = 10, int offset = 0);
+    
+    // Total count methods for pagination
+    Task<int> GetQuizParticipantsTotalCountAsync();
+    Task<int> GetGameParticipantsTotalCountAsync();
+    Task<int> GetTipsContributorsTotalCountAsync();
 }

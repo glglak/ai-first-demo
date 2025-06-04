@@ -54,3 +54,12 @@ public record UnifiedParticipant(
     string Activity,
     DateTime LastActive
 );
+
+public record PaginatedResponse<T>(
+    List<T> Data,
+    int Total,
+    int Page,
+    int PageSize,
+    bool HasNext,
+    bool HasPrevious
+);

@@ -3,7 +3,6 @@ using AiFirstDemo.Infrastructure.Redis;
 using AiFirstDemo.Infrastructure.OpenAI;
 using AiFirstDemo.Features.UserSessions;
 using AiFirstDemo.Features.Shared.Models;
-using AiFirstDemo.Features.Analytics;
 using Microsoft.Extensions.Logging;
 
 namespace AiFirstDemo.Features.Quiz;
@@ -13,7 +12,6 @@ public class QuizService : IQuizService
     private readonly IRedisService _redis;
     private readonly IOpenAIService _openAI;
     private readonly IUserSessionService _userSession;
-    private readonly IAnalyticsService _analytics;
     private readonly ILogger<QuizService> _logger;
     private const string QUIZ_ATTEMPT_PREFIX = "quiz:attempt:";
     private const string QUIZ_QUESTIONS_KEY = "quiz:questions:all";
@@ -22,13 +20,11 @@ public class QuizService : IQuizService
         IRedisService redis, 
         IOpenAIService openAI,
         IUserSessionService userSession,
-        IAnalyticsService analytics,
         ILogger<QuizService> logger)
     {
         _redis = redis;
         _openAI = openAI;
         _userSession = userSession;
-        _analytics = analytics;
         _logger = logger;
     }
 
@@ -59,54 +55,45 @@ public class QuizService : IQuizService
 
     public async Task<QuizResultResponse> SubmitQuizAsync(QuizSubmissionRequest request)
     {
+        var startTime = DateTime.UtcNow;
+        
+        // Get session to get IP information
         var session = await _userSession.GetSessionAsync(request.SessionId);
         if (session == null)
         {
             throw new InvalidOperationException("Invalid session");
         }
 
-        // Check if this IP can still take quizzes
-        // We need to get the original IP from the session's IP hash
-        // For now, we'll use a workaround since we need the original IP
-        // In a real implementation, we'd store the original IP or use the hash consistently
-        var sessionIpHash = session.IpHash;
+        // Track quiz attempt number for this IP
+        var ipHash = session.IpHash;
+        var attemptNumber = await IncrementQuizAttemptForIpAsync(ipHash);
         
-        // Create a temporary method to check attempts using IP hash
-        var attempts = await GetQuizAttemptsForIpHashAsync(sessionIpHash);
-        if (attempts >= 3)
-        {
-            throw new InvalidOperationException($"Quiz attempt limit reached. You have completed {attempts}/3 attempts today. Please try again tomorrow.");
-        }
-
-        // Check if this specific session already completed a quiz
-        if (session.HasCompletedQuiz)
-        {
-            throw new InvalidOperationException("Quiz already completed for this session. Create a new session to try again.");
-        }
-
+        // Get questions
         var questions = await GetQuizQuestionsAsync();
-        var startTime = DateTime.UtcNow.AddMinutes(-15); // Assume 15 min quiz time
+        if (questions.Count == 0)
+        {
+            throw new InvalidOperationException("No quiz questions available");
+        }
+
+        // Validate answers
+        if (request.Answers.Count != questions.Count)
+        {
+            throw new InvalidOperationException("Answer count doesn't match question count");
+        }
+
+        // Calculate score
+        int score = 0;
         var results = new List<QuestionResult>();
         var quizAnswers = new List<QuizAnswer>();
-        int score = 0;
 
         foreach (var submission in request.Answers)
         {
             var question = questions.FirstOrDefault(q => q.Id == submission.QuestionId);
             if (question == null) continue;
-
-            var isCorrect = question.CorrectAnswer.Equals(submission.SelectedAnswer, StringComparison.OrdinalIgnoreCase);
+            
+            var isCorrect = string.Equals(question.CorrectAnswer, submission.SelectedAnswer, StringComparison.OrdinalIgnoreCase);
             if (isCorrect) score++;
 
-            var quizAnswer = new QuizAnswer(
-                QuestionId: submission.QuestionId,
-                SelectedAnswer: submission.SelectedAnswer,
-                IsCorrect: isCorrect,
-                AnsweredAt: DateTime.UtcNow
-            );
-            quizAnswers.Add(quizAnswer);
-
-            // Remove AI explanation to improve performance - user requested this optimization
             results.Add(new QuestionResult(
                 QuestionText: question.Text,
                 SelectedAnswer: submission.SelectedAnswer,
@@ -114,24 +101,20 @@ public class QuizService : IQuizService
                 IsCorrect: isCorrect,
                 Explanation: "" // Removed AI explanation for performance
             ));
+
+            quizAnswers.Add(new QuizAnswer(
+                QuestionId: question.Id,
+                SelectedAnswer: submission.SelectedAnswer,
+                IsCorrect: isCorrect,
+                AnsweredAt: DateTime.UtcNow
+            ));
         }
 
-        // Generate AI analysis
-        var analysisData = quizAnswers.Select(a => {
-            var q = questions.First(qu => qu.Id == a.QuestionId);
-            return new QuizAnalysisData(
-                Question: q.Text,
-                UserAnswer: a.SelectedAnswer,
-                CorrectAnswer: q.CorrectAnswer,
-                IsCorrect: a.IsCorrect,
-                Category: q.Category
-            );
-        }).ToList();
+        // This was causing slow quiz submissions, so we'll provide static feedback instead
+        var aiAnalysis = GetStaticAnalysisFeedback(score, questions.Count);
+        var recommendations = GetStaticRecommendations();
 
-        var aiAnalysis = await _openAI.AnalyzeQuizPerformanceAsync(analysisData);
-        var recommendations = await _openAI.GenerateTipsAsync("Cursor and AI Development", 3);
-
-        // Create quiz attempt
+        // Create quiz attempt with IP attempt tracking
         var attempt = new QuizAttempt(
             SessionId: request.SessionId,
             Answers: quizAnswers,
@@ -141,17 +124,22 @@ public class QuizService : IQuizService
             AiAnalysis: aiAnalysis
         );
 
-        // Save attempt
-        await _redis.SetAsync($"{QUIZ_ATTEMPT_PREFIX}{request.SessionId}", attempt, TimeSpan.FromDays(7));
+        // Save attempt with extended key for IP tracking
+        var attemptKey = $"{QUIZ_ATTEMPT_PREFIX}{request.SessionId}";
+        await _redis.SetAsync(attemptKey, attempt, TimeSpan.FromDays(30)); // Changed to 30 days to match game scores
+        
+        // Also store with IP attempt number for analytics
+        var ipAttemptKey = $"quiz:ip:attempt:{ipHash}:{attemptNumber}:{request.SessionId}";
+        await _redis.SetAsync(ipAttemptKey, attempt, TimeSpan.FromDays(30));
         
         // Mark quiz as completed (this will increment the attempt count)
         await _userSession.MarkQuizCompletedAsync(request.SessionId);
 
-        // Track analytics
-        await _analytics.TrackQuizCompletionAsync(request.SessionId, score);
+        // Track analytics directly
+        await TrackAnalyticsAsync(request.SessionId, score);
 
-        _logger.LogInformation("Quiz completed for session {SessionId} with score {Score}/{Total}", 
-            request.SessionId, score, questions.Count);
+        _logger.LogInformation("Quiz completed for session {SessionId} with score {Score}/{Total}, IP attempt #{AttemptNumber}", 
+            request.SessionId, score, questions.Count, attemptNumber);
 
         return new QuizResultResponse(
             Score: score,
@@ -315,5 +303,70 @@ public class QuizService : IQuizService
             "advanced features" => "Think about the difference between review-based and automatic features in AI development tools.",
             _ => "Consider the core principles and most practical approaches related to this topic."
         };
+    }
+
+    private string GetStaticAnalysisFeedback(int score, int totalQuestions)
+    {
+        var percentage = Math.Round((double)score / totalQuestions * 100, 1);
+        
+        return percentage switch
+        {
+            >= 90 => $"🎉 Excellent work! You scored {score}/{totalQuestions} ({percentage}%). You have a strong understanding of AI-First development practices.",
+            >= 80 => $"👍 Great job! You scored {score}/{totalQuestions} ({percentage}%). You're well on your way to mastering AI-assisted development.",
+            >= 70 => $"✅ Good effort! You scored {score}/{totalQuestions} ({percentage}%). Keep practicing and exploring AI development tools.",
+            >= 60 => $"📚 Not bad! You scored {score}/{totalQuestions} ({percentage}%). Consider reviewing the tips section for more insights.",
+            _ => $"💪 Keep learning! You scored {score}/{totalQuestions} ({percentage}%). This is a great start - check out our tips and try again!"
+        };
+    }
+
+    private List<string> GetStaticRecommendations()
+    {
+        return new List<string>
+        {
+            "Practice using @ references in Cursor for better context",
+            "Try Cmd+K for inline code generation",
+            "Explore the Tips & Tricks section for more insights",
+            "Experiment with different AI models for various tasks",
+            "Join the community to share and learn from others"
+        };
+    }
+
+    private async Task<int> IncrementQuizAttemptForIpAsync(string ipHash)
+    {
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var key = $"ip:quiz:attempts:{ipHash}:{today}";
+        
+        try
+        {
+            var attemptsStr = await _redis.GetStringAsync(key);
+            var attempts = int.TryParse(attemptsStr, out var attemptNumber) ? attemptNumber : 0;
+            attemptNumber++;
+            await _redis.SetAsync(key, attemptNumber.ToString(), TimeSpan.FromHours(24));
+            return attemptNumber;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error incrementing quiz attempts for IP hash {IpHash}, returning 1", ipHash);
+            return 1;
+        }
+    }
+
+    private async Task TrackAnalyticsAsync(string sessionId, int score)
+    {
+        try
+        {
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            var hour = DateTime.UtcNow.ToString("yyyy-MM-dd-HH");
+            
+            await _redis.IncrementAsync($"analytics:daily:{today}:quizzesCompleted");
+            await _redis.IncrementAsync($"analytics:hourly:{hour}:quizAttempts");
+            
+            _logger.LogInformation("Tracked quiz completion: {Score} for session {SessionId}", score, sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error tracking quiz analytics for {SessionId}", sessionId);
+            // Don't throw - analytics tracking should not break quiz functionality
+        }
     }
 }
