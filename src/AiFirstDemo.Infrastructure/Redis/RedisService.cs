@@ -77,24 +77,12 @@ public class RedisService : IRedisService
 
     public async Task<bool> ExistsAsync(string key)
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, returning false for exists check: {Key}", key);
-            return false;
-        }
-
-        return await _database.KeyExistsAsync(key);
+        return await _database!.KeyExistsAsync(key);
     }
 
     public async Task<bool> SetExpiryAsync(string key, TimeSpan expiry)
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, simulating set expiry for key: {Key}", key);
-            return true;
-        }
-
-        return await _database.KeyExpireAsync(key, expiry);
+        return await _database!.KeyExpireAsync(key, expiry);
     }
 
     public async Task<long> IncrementAsync(string key, long value = 1)
@@ -117,24 +105,12 @@ public class RedisService : IRedisService
 
     public async Task<bool> HashSetAsync(string key, string field, string value)
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, simulating hash set for key: {Key}, field: {Field}", key, field);
-            return true;
-        }
-
-        return await _database.HashSetAsync(key, field, value);
+        return await _database!.HashSetAsync(key, field, value);
     }
 
     public async Task<string?> HashGetAsync(string key, string field)
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, returning null for hash get: {Key}, field: {Field}", key, field);
-            return null;
-        }
-
-        var value = await _database.HashGetAsync(key, field);
+        var value = await _database!.HashGetAsync(key, field);
         return value.HasValue ? value.ToString() : null;
     }
 
@@ -198,13 +174,7 @@ public class RedisService : IRedisService
 
     public async Task<bool> SortedSetAddAsync(string key, string member, double score)
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, simulating sorted set add for key: {Key}", key);
-            return true;
-        }
-
-        return await _database.SortedSetAddAsync(key, member, score);
+        return await _database!.SortedSetAddAsync(key, member, score);
     }
 
     public async Task<List<(string Member, double Score)>> SortedSetRangeWithScoresAsync(string key, long start = 0, long stop = -1, bool descending = false)
