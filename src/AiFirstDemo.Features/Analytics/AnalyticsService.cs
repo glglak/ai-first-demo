@@ -199,12 +199,15 @@ public class AnalyticsService : IAnalyticsService
             
             // Use server-side pagination - get sorted keys first
             var sortedAttempts = await GetSortedQuizAttemptsAsync();
+            _logger.LogInformation("Found {Count} total sorted quiz attempts", sortedAttempts.Count);
             
             // Apply pagination to the sorted list
             var paginatedAttempts = sortedAttempts
                 .Skip(offset)
                 .Take(limit)
                 .ToList();
+            
+            _logger.LogInformation("Processing {Count} paginated attempts", paginatedAttempts.Count);
             
             // Now get the detailed data only for the items we need
             var results = new List<UnifiedParticipant>();
@@ -213,9 +216,14 @@ public class AnalyticsService : IAnalyticsService
             {
                 try
                 {
-                    var session = await _redis.GetAsync<UserSession>($"user:session:{attemptInfo.SessionId}");
+                    var sessionKey = $"user:session:{attemptInfo.SessionId}";
+                    _logger.LogInformation("Trying to get session data for key: {SessionKey}", sessionKey);
+                    
+                    var session = await _redis.GetAsync<UserSession>(sessionKey);
                     if (session != null)
                     {
+                        _logger.LogInformation("Found session data for {SessionId}: Name={Name}", attemptInfo.SessionId, session.Name);
+                        
                         results.Add(new UnifiedParticipant(
                             Name: session.Name,
                             IpHash: "hidden", // Not needed for UI
@@ -224,10 +232,32 @@ public class AnalyticsService : IAnalyticsService
                             LastActive: attemptInfo.CompletedAt
                         ));
                     }
+                    else
+                    {
+                        _logger.LogWarning("No session data found for {SessionId}, adding with fallback data", attemptInfo.SessionId);
+                        
+                        // Add fallback entry even without session data
+                        results.Add(new UnifiedParticipant(
+                            Name: $"Anonymous-{attemptInfo.SessionId.Substring(0, Math.Min(8, attemptInfo.SessionId.Length))}",
+                            IpHash: "hidden",
+                            Score: attemptInfo.Score,
+                            Activity: attemptInfo.Activity,
+                            LastActive: attemptInfo.CompletedAt
+                        ));
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error processing attempt for session {SessionId}", attemptInfo.SessionId);
+                    _logger.LogWarning(ex, "Error processing attempt for session {SessionId}, adding with fallback", attemptInfo.SessionId);
+                    
+                    // Add fallback entry even when there's an error
+                    results.Add(new UnifiedParticipant(
+                        Name: $"Error-{attemptInfo.SessionId.Substring(0, Math.Min(8, attemptInfo.SessionId.Length))}",
+                        IpHash: "hidden",
+                        Score: attemptInfo.Score,
+                        Activity: attemptInfo.Activity,
+                        LastActive: attemptInfo.CompletedAt
+                    ));
                 }
             }
             
@@ -298,6 +328,16 @@ public class AnalyticsService : IAnalyticsService
             
             _logger.LogInformation("Processing {IpCount} IP attempts and {RegularCount} regular attempts", 
                 ipAttemptKeys.Count, regularAttemptKeys.Count);
+            
+            if (ipAttemptKeys.Count > 0)
+            {
+                _logger.LogInformation("Sample IP attempt keys: {Keys}", string.Join(", ", ipAttemptKeys.Take(3)));
+            }
+            
+            if (regularAttemptKeys.Count > 0)
+            {
+                _logger.LogInformation("Sample regular attempt keys: {Keys}", string.Join(", ", regularAttemptKeys.Take(3)));
+            }
             
             // Process IP-based attempts
             foreach (var ipKey in ipAttemptKeys)
@@ -681,6 +721,81 @@ public class AnalyticsService : IAnalyticsService
         {
             _logger.LogWarning(ex, "Error getting tips contributors total count");
             return 0;
+        }
+    }
+
+    public async Task<object> GetRedisDebugInfoAsync()
+    {
+        try
+        {
+            var debugInfo = new Dictionary<string, object>();
+            
+            // Check quiz attempt keys
+            var ipAttemptKeys = await _redis.GetKeysAsync("quiz:ip:attempt:*");
+            var regularAttemptKeys = await _redis.GetKeysAsync("quiz:attempt:*");
+            
+            debugInfo["quiz_ip_attempt_keys_count"] = ipAttemptKeys.Count;
+            debugInfo["quiz_regular_attempt_keys_count"] = regularAttemptKeys.Count;
+            debugInfo["quiz_ip_attempt_sample_keys"] = ipAttemptKeys.Take(5).ToList();
+            debugInfo["quiz_regular_attempt_sample_keys"] = regularAttemptKeys.Take(5).ToList();
+            
+            // Check session keys
+            var sessionKeys = await _redis.GetKeysAsync("user:session:*");
+            debugInfo["session_keys_count"] = sessionKeys.Count;
+            debugInfo["session_sample_keys"] = sessionKeys.Take(5).ToList();
+            
+            // Try to get sample session data
+            if (sessionKeys.Count > 0)
+            {
+                var sampleSessionKey = sessionKeys.First();
+                var sampleSession = await _redis.GetAsync<UserSession>(sampleSessionKey);
+                debugInfo["sample_session_data"] = sampleSession != null ? new { 
+                    Key = sampleSessionKey,
+                    Name = sampleSession.Name,
+                    CreatedAt = sampleSession.CreatedAt 
+                } : "null";
+            }
+            
+            // Try to get sample quiz attempt data
+            if (ipAttemptKeys.Count > 0)
+            {
+                var sampleAttemptKey = ipAttemptKeys.First();
+                var sampleAttempt = await _redis.GetAsync<QuizAttempt>(sampleAttemptKey);
+                debugInfo["sample_ip_attempt_data"] = sampleAttempt != null ? new {
+                    Key = sampleAttemptKey,
+                    Score = sampleAttempt.Score,
+                    CompletedAt = sampleAttempt.CompletedAt
+                } : "null";
+            }
+            
+            if (regularAttemptKeys.Count > 0)
+            {
+                var sampleAttemptKey = regularAttemptKeys.First();
+                var sampleAttempt = await _redis.GetAsync<QuizAttempt>(sampleAttemptKey);
+                debugInfo["sample_regular_attempt_data"] = sampleAttempt != null ? new {
+                    Key = sampleAttemptKey,
+                    Score = sampleAttempt.Score,
+                    CompletedAt = sampleAttempt.CompletedAt
+                } : "null";
+            }
+            
+            // Check game keys
+            var gameScoreKeys = await _redis.GetKeysAsync("game:score:*");
+            var gameLeaderboardWithScores = await _redis.SortedSetRangeWithScoresAsync("game:leaderboard:alltime", 0, 4);
+            debugInfo["game_score_keys_count"] = gameScoreKeys.Count;
+            debugInfo["game_leaderboard_sample"] = gameLeaderboardWithScores.Select(x => new { Member = x.Member, Score = x.Score }).ToList();
+            
+            // Check tips keys
+            var tipKeys = await _redis.GetKeysAsync("tips:*");
+            debugInfo["tip_keys_count"] = tipKeys.Count;
+            debugInfo["tip_sample_keys"] = tipKeys.Take(5).ToList();
+            
+            return debugInfo;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting Redis debug info");
+            return new { error = ex.Message };
         }
     }
 }

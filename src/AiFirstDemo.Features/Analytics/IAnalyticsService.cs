@@ -21,4 +21,7 @@ public interface IAnalyticsService
     Task<int> GetQuizParticipantsTotalCountAsync();
     Task<int> GetGameParticipantsTotalCountAsync();
     Task<int> GetTipsContributorsTotalCountAsync();
+    
+    // Debug method for troubleshooting
+    Task<object> GetRedisDebugInfoAsync();
 }

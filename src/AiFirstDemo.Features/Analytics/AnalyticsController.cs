@@ -178,6 +178,21 @@ public class AnalyticsController : ControllerBase
             return StatusCode(500, "Error retrieving hourly activity");
         }
     }
+
+    [HttpGet("debug/redis-keys")]
+    public async Task<ActionResult> GetRedisDebugInfo()
+    {
+        try
+        {
+            var debugInfo = await _analyticsService.GetRedisDebugInfoAsync();
+            return Ok(debugInfo);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting Redis debug info");
+            return StatusCode(500, "Error retrieving Redis debug info");
+        }
+    }
 }
 
 public record TrackActivityRequest(string Activity);

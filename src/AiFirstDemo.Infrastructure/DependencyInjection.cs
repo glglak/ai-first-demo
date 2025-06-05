@@ -21,8 +21,7 @@ public static class DependencyInjection
             
             if (string.IsNullOrEmpty(redisConnectionString))
             {
-                logger?.LogWarning("No Redis connection string found. Some features may not work properly.");
-                // Return null - RedisService will handle this gracefully
+                logger?.LogWarning("No Redis connection string found. Running in mock mode - some features may not work properly.");
                 return null!;
             }
             
@@ -31,27 +30,37 @@ public static class DependencyInjection
                 logger?.LogInformation("Attempting to connect to Azure Redis...");
                 var options = ConfigurationOptions.Parse(redisConnectionString);
                 
-                // Set aggressive timeouts to prevent hanging and improve user experience
-                options.ConnectTimeout = 5000;  // 5 seconds to connect
-                options.SyncTimeout = 2000;     // 2 seconds for sync operations
-                options.AsyncTimeout = 3000;    // 3 seconds for async operations
+                // Set very aggressive timeouts to prevent hanging
+                options.ConnectTimeout = 3000;      // 3 seconds to connect
+                options.SyncTimeout = 1000;         // 1 second for sync operations
+                options.AsyncTimeout = 2000;        // 2 seconds for async operations
                 options.AbortOnConnectFail = false; // Don't fail startup if Redis is unavailable
-                options.ConnectRetry = 2;       // Reduce retry attempts for faster failover
-                options.ReconnectRetryPolicy = new ExponentialRetry(500); // Faster retry policy
+                options.ConnectRetry = 1;           // Only 1 retry attempt for faster failover
+                options.ReconnectRetryPolicy = new ExponentialRetry(250); // Faster retry policy
                 
                 // Add additional resilience settings
                 options.KeepAlive = 60;         // Keep connection alive
                 options.DefaultDatabase = 0;
                 options.AllowAdmin = false;     // Security best practice
                 
-                var connection = ConnectionMultiplexer.Connect(options);
-                logger?.LogInformation("Redis connection established successfully");
-                return connection;
+                // Add a task timeout wrapper to prevent indefinite hanging
+                var connectionTask = Task.Run(() => ConnectionMultiplexer.Connect(options));
+                
+                if (connectionTask.Wait(TimeSpan.FromSeconds(5))) // 5 second total timeout
+                {
+                    var connection = connectionTask.Result;
+                    logger?.LogInformation("Redis connection established successfully");
+                    return connection;
+                }
+                else
+                {
+                    logger?.LogWarning("Redis connection timed out after 5 seconds. Running in mock mode - some features may not work properly.");
+                    return null!;
+                }
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Failed to connect to Redis. Continuing without Redis - some features may not work properly.");
-                // Return null - RedisService will handle this gracefully
+                logger?.LogError(ex, "Failed to connect to Redis. Running in mock mode - some features may not work properly.");
                 return null!;
             }
         });
