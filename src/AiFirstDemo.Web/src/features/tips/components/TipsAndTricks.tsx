@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSession } from '../../../shared/contexts/SessionContext'
 import { tipsApi, sessionApi } from '../../../shared/services/api'
@@ -49,18 +49,20 @@ const TipsAndTricks: React.FC = () => {
     staleTime: 30000, // 30 seconds
   })
 
-  // Use API tips or fallback to empty array
-  const allTips = tipsResponse?.tips || []
+  // Use API tips or fallback to empty array - memoize to prevent unnecessary re-renders
+  const allTips = useMemo(() => tipsResponse?.tips || [], [tipsResponse?.tips])
 
-  // Filter tips based on search
-  const filteredTips = allTips.filter(tip => {
-    const matchesSearch = searchQuery === '' || 
-      tip.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tip.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tip.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
-    
-    return matchesSearch
-  })
+  // Filter tips based on search - memoize the filtering
+  const filteredTips = useMemo(() => {
+    return allTips.filter(tip => {
+      const matchesSearch = searchQuery === '' || 
+        tip.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tip.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tip.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+      
+      return matchesSearch
+    })
+  }, [allTips, searchQuery])
 
   // Session creation mutation
   const createSessionMutation = useMutation({
@@ -87,13 +89,21 @@ const TipsAndTricks: React.FC = () => {
     }
   })
 
-  // Update liked tips when tips data changes
+  // Update liked tips when tips data changes - use the original response to avoid infinite loops
   useEffect(() => {
-    if (allTips) {
-      const currentlyLiked = new Set(allTips.filter(tip => tip.isLikedByUser).map(tip => tip.id))
-      setLikedTips(currentlyLiked)
+    if (tipsResponse?.tips) {
+      const currentlyLiked = new Set(tipsResponse.tips.filter(tip => tip.isLikedByUser).map(tip => tip.id))
+      setLikedTips(prev => {
+        // Only update if the liked tips have actually changed
+        if (prev.size !== currentlyLiked.size || 
+            Array.from(prev).some(id => !currentlyLiked.has(id)) ||
+            Array.from(currentlyLiked).some(id => !prev.has(id))) {
+          return currentlyLiked
+        }
+        return prev
+      })
     }
-  }, [allTips])
+  }, [tipsResponse?.tips])
 
   const likeTipMutation = useMutation({
     mutationFn: (tipId: string) => tipsApi.likeTip(tipId, session?.sessionId || ''),

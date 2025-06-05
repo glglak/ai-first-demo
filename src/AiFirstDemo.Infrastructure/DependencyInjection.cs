@@ -27,40 +27,21 @@ public static class DependencyInjection
             
             try
             {
-                logger?.LogInformation("Attempting to connect to Azure Redis...");
+                logger?.LogInformation("Attempting to connect to Redis...");
                 var options = ConfigurationOptions.Parse(redisConnectionString);
+                options.ConnectTimeout = 3000; // 3 seconds
+                options.SyncTimeout = 3000; // 3 seconds  
+                options.AbortOnConnectFail = false;
+                options.ConnectRetry = 2;
+                options.ReconnectRetryPolicy = new ExponentialRetry(1000);
                 
-                // Set very aggressive timeouts to prevent hanging
-                options.ConnectTimeout = 3000;      // 3 seconds to connect
-                options.SyncTimeout = 1000;         // 1 second for sync operations
-                options.AsyncTimeout = 2000;        // 2 seconds for async operations
-                options.AbortOnConnectFail = false; // Don't fail startup if Redis is unavailable
-                options.ConnectRetry = 1;           // Only 1 retry attempt for faster failover
-                options.ReconnectRetryPolicy = new ExponentialRetry(250); // Faster retry policy
-                
-                // Add additional resilience settings
-                options.KeepAlive = 60;         // Keep connection alive
-                options.DefaultDatabase = 0;
-                options.AllowAdmin = false;     // Security best practice
-                
-                // Add a task timeout wrapper to prevent indefinite hanging
-                var connectionTask = Task.Run(() => ConnectionMultiplexer.Connect(options));
-                
-                if (connectionTask.Wait(TimeSpan.FromSeconds(5))) // 5 second total timeout
-                {
-                    var connection = connectionTask.Result;
-                    logger?.LogInformation("Redis connection established successfully");
-                    return connection;
-                }
-                else
-                {
-                    logger?.LogWarning("Redis connection timed out after 5 seconds. Running in mock mode - some features may not work properly.");
-                    return null!;
-                }
+                var connection = ConnectionMultiplexer.Connect(options);
+                logger?.LogInformation("Successfully connected to Redis");
+                return connection;
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Failed to connect to Redis. Running in mock mode - some features may not work properly.");
+                logger?.LogError(ex, "Failed to connect to Redis. Running in mock mode.");
                 return null!;
             }
         });
