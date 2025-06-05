@@ -13,7 +13,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        // Add Redis connection with proper error handling
+        // Add Redis connection - NEVER use mock mode, always connect to real Redis
         services.AddSingleton<IConnectionMultiplexer>(provider =>
         {
             var logger = provider.GetService<ILogger<ConnectionMultiplexer>>();
@@ -21,28 +21,47 @@ public static class DependencyInjection
             
             if (string.IsNullOrEmpty(redisConnectionString))
             {
-                logger?.LogWarning("No Redis connection string found. Running in mock mode - some features may not work properly.");
-                return null!;
+                logger?.LogError("Redis connection string is required but not found in configuration!");
+                throw new InvalidOperationException("Redis connection string is required. Please check appsettings.json");
             }
+            
+            logger?.LogInformation("Connecting to Redis: {RedisHost}", redisConnectionString.Split(',')[0]);
             
             try
             {
-                logger?.LogInformation("Attempting to connect to Redis...");
                 var options = ConfigurationOptions.Parse(redisConnectionString);
-                options.ConnectTimeout = 3000; // 3 seconds
-                options.SyncTimeout = 3000; // 3 seconds  
-                options.AbortOnConnectFail = false;
-                options.ConnectRetry = 2;
-                options.ReconnectRetryPolicy = new ExponentialRetry(1000);
+                
+                // Enhanced connection settings for Azure Redis
+                options.ConnectTimeout = 10000; // 10 seconds - more time for Azure Redis
+                options.SyncTimeout = 5000; // 5 seconds for sync operations
+                options.AsyncTimeout = 10000; // 10 seconds for async operations
+                options.ConnectRetry = 3; // More retries for reliability
+                options.ReconnectRetryPolicy = new ExponentialRetry(1000, 30000); // 1s to 30s retry
+                options.KeepAlive = 60; // Keep connection alive
+                options.DefaultDatabase = 0;
+                options.AllowAdmin = false; // Security best practice
                 
                 var connection = ConnectionMultiplexer.Connect(options);
-                logger?.LogInformation("Successfully connected to Redis");
+                
+                // Test the connection immediately
+                var database = connection.GetDatabase();
+                var testKey = "connection:test:" + DateTime.UtcNow.Ticks;
+                database.StringSet(testKey, "connected", TimeSpan.FromSeconds(10));
+                var testValue = database.StringGet(testKey);
+                database.KeyDelete(testKey);
+                
+                if (testValue != "connected")
+                {
+                    throw new InvalidOperationException("Redis connection test failed - could not read/write test data");
+                }
+                
+                logger?.LogInformation("✅ Successfully connected to Redis and verified read/write operations");
                 return connection;
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Failed to connect to Redis. Running in mock mode.");
-                return null!;
+                logger?.LogError(ex, "❌ FAILED to connect to Redis. Application cannot start without Redis connection.");
+                throw new InvalidOperationException($"Redis connection failed: {ex.Message}", ex);
             }
         });
         

@@ -20,86 +20,59 @@ public class RedisService : IRedisService
             WriteIndented = false
         };
 
-        if (connectionMultiplexer != null)
+        if (connectionMultiplexer == null)
         {
-            try
-            {
-                _database = connectionMultiplexer.GetDatabase();
-                _isConnected = true;
-                _logger?.LogInformation("Redis service initialized with active connection");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Failed to get Redis database, falling back to mock mode");
-                _isConnected = false;
-            }
+            _logger?.LogError("Redis ConnectionMultiplexer is null - Redis connection is REQUIRED");
+            throw new InvalidOperationException("Redis connection is required. ConnectionMultiplexer cannot be null.");
         }
-        else
+
+        try
         {
-            _logger?.LogWarning("Redis service initialized in mock mode (no connection available)");
-            _isConnected = false;
+            _database = connectionMultiplexer.GetDatabase();
+            _isConnected = true;
+            _logger?.LogInformation("✅ Redis service initialized with active connection");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "❌ Failed to get Redis database");
+            throw new InvalidOperationException("Failed to initialize Redis database", ex);
         }
     }
 
     public async Task<T?> GetAsync<T>(string key) where T : class
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, returning null for key: {Key}", key);
-            return null;
-        }
-
-        var value = await _database.StringGetAsync(key);
+        var value = await _database!.StringGetAsync(key);
         return value.HasValue ? JsonSerializer.Deserialize<T>(value!, _jsonOptions) : null;
     }
 
     public async Task<string?> GetStringAsync(string key)
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, returning null for key: {Key}", key);
-            return null;
-        }
-
         try
         {
-            // Use a shorter timeout for this specific operation
-            var value = await _database.StringGetAsync(key);
+            var value = await _database!.StringGetAsync(key);
             return value.HasValue ? value.ToString() : null;
         }
         catch (RedisTimeoutException ex)
         {
             _logger?.LogWarning(ex, "Redis timeout getting key {Key}. This might indicate network issues with Azure Redis.", key);
-            return null; // Fail gracefully
+            throw; // Re-throw timeout exceptions to surface Redis issues
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Redis error getting key {Key}. Returning null.", key);
-            return null; // Fail gracefully
+            _logger?.LogError(ex, "Redis error getting key {Key}.", key);
+            throw; // Re-throw to surface Redis connection issues
         }
     }
 
     public async Task<bool> SetAsync<T>(string key, T value, TimeSpan? expiry = null) where T : class
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, simulating set for key: {Key}", key);
-            return true; // Simulate success
-        }
-
         var json = JsonSerializer.Serialize(value, _jsonOptions);
-        return await _database.StringSetAsync(key, json, expiry);
+        return await _database!.StringSetAsync(key, json, expiry);
     }
 
     public async Task<bool> DeleteAsync(string key)
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, simulating delete for key: {Key}", key);
-            return true; // Simulate success
-        }
-
-        return await _database.KeyDeleteAsync(key);
+        return await _database!.KeyDeleteAsync(key);
     }
 
     public async Task<bool> ExistsAsync(string key)
@@ -126,25 +99,19 @@ public class RedisService : IRedisService
 
     public async Task<long> IncrementAsync(string key, long value = 1)
     {
-        if (!_isConnected || _database == null)
-        {
-            _logger?.LogDebug("Redis not connected, simulating increment for key: {Key}", key);
-            return value; // Simulate increment
-        }
-
         try
         {
-            return await _database.StringIncrementAsync(key, value);
+            return await _database!.StringIncrementAsync(key, value);
         }
         catch (RedisTimeoutException ex)
         {
-            _logger?.LogWarning(ex, "Redis timeout incrementing key {Key}. This might indicate network issues with Azure Redis.", key);
-            return value; // Return the increment value as if it succeeded
+            _logger?.LogError(ex, "Redis timeout incrementing key {Key}. This indicates network issues with Azure Redis.", key);
+            throw; // Re-throw to surface Redis issues
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Redis error incrementing key {Key}. Returning increment value.", key);
-            return value; // Return the increment value as if it succeeded
+            _logger?.LogError(ex, "Redis error incrementing key {Key}.", key);
+            throw; // Re-throw to surface Redis connection issues
         }
     }
 
