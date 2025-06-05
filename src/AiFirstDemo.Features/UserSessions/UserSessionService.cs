@@ -38,7 +38,7 @@ public class UserSessionService : IUserSessionService
         // Store session data
         var sessionKey = $"{SESSION_KEY_PREFIX}{sessionId}";
         _logger.LogInformation("Storing session with key: {Key}", sessionKey);
-        await _redis.SetAsync(sessionKey, session, TimeSpan.FromHours(24));
+        await _redis.SetAsync(sessionKey, session, TimeSpan.FromDays(30)); // Match quiz attempt retention
         
         // Verify it was stored immediately
         var verifySession = await _redis.GetAsync<UserSession>(sessionKey);
@@ -52,11 +52,11 @@ public class UserSessionService : IUserSessionService
         }
         
         // Store the latest session for this IP (allow multiple sessions but track the latest)
-        await _redis.SetAsync($"{IP_SESSION_PREFIX}{ipHash}", sessionId, TimeSpan.FromHours(24));
+        await _redis.SetAsync($"{IP_SESSION_PREFIX}{ipHash}", sessionId, TimeSpan.FromDays(30)); // Match quiz attempt retention
         
         // Store partially masked IP for analytics display (e.g., "192.168.1.xxx")
         var maskedIp = MaskIpAddress(request.IpAddress);
-        await _redis.SetAsync($"session:ip:display:{sessionId}", maskedIp, TimeSpan.FromHours(24));
+        await _redis.SetAsync($"session:ip:display:{sessionId}", maskedIp, TimeSpan.FromDays(30)); // Match quiz attempt retention
         
         // Track analytics
         await TrackSessionActivityAsync(sessionId, "session_created");
@@ -93,7 +93,7 @@ public class UserSessionService : IUserSessionService
         if (session == null) return false;
 
         var updatedSession = session with { LastActivity = DateTime.UtcNow };
-        return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromHours(24));
+        return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromDays(30)); // Match quiz attempt retention
     }
 
     public async Task<bool> MarkQuizCompletedAsync(string sessionId)
@@ -118,7 +118,7 @@ public class UserSessionService : IUserSessionService
             }
 
             var updatedSession = session with { HasCompletedQuiz = true, LastActivity = DateTime.UtcNow };
-            return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromHours(24));
+            return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromDays(30)); // Match quiz attempt retention
         }
         catch (Exception ex)
         {
@@ -134,7 +134,7 @@ public class UserSessionService : IUserSessionService
                 await _redis.SetExpiryAsync(attemptKey, TimeSpan.FromDays(1));
 
         var updatedSession = session with { HasCompletedQuiz = true, LastActivity = DateTime.UtcNow };
-        return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromHours(24));
+        return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromDays(30)); // Match quiz attempt retention
             }
             catch (Exception retryEx)
             {
@@ -142,7 +142,7 @@ public class UserSessionService : IUserSessionService
                 
                 // Still update the session even if counter fails
                 var updatedSession = session with { HasCompletedQuiz = true, LastActivity = DateTime.UtcNow };
-                return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromHours(24));
+                return await _redis.SetAsync($"{SESSION_KEY_PREFIX}{sessionId}", updatedSession, TimeSpan.FromDays(30)); // Match quiz attempt retention
             }
         }
     }
